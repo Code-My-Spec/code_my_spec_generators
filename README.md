@@ -23,6 +23,7 @@ Then run `mix deps.get`.
 | Task | Description |
 | --- | --- |
 | `mix cms_gen.accounts` | Accounts, members, and invitations scaffolding |
+| `mix cms_gen.content` | Published content context (single-tenant) for deploying/serving content |
 | `mix cms_gen.integrations` | OAuth integrations context and LiveViews |
 | `mix cms_gen.integration_provider` | A single OAuth provider module (github, google, facebook, quickbooks, codemyspec) |
 | `mix cms_gen.feedback_widget` | Embeddable CodeMySpec feedback widget |
