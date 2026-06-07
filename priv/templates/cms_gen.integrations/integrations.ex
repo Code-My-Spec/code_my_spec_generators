@@ -1,7 +1,12 @@
 defmodule <%= app_module %>.Integrations do
+  @moduledoc """
+  OAuth integrations context: authorize URLs, callback handling, and stored
+  provider tokens. Web callers pass an absolute `redirect_uri` down so this
+  context never references the web Endpoint.
+  """
+
   require Logger
 
-  alias <%= app_module %>.Integrations.Integration
   alias <%= app_module %>.Integrations.IntegrationRepository
   alias <%= app_module %>.Users.Scope
 
@@ -9,6 +14,7 @@ defmodule <%= app_module %>.Integrations do
 
   defdelegate get_integration(scope, provider), to: IntegrationRepository
   defdelegate list_integrations(scope), to: IntegrationRepository
+  defdelegate update_integration(scope, provider, attrs), to: IntegrationRepository
   defdelegate delete_integration(scope, provider), to: IntegrationRepository
   defdelegate connected?(scope, provider), to: IntegrationRepository
 
@@ -16,17 +22,21 @@ defmodule <%= app_module %>.Integrations do
     providers() |> Map.keys()
   end
 
-  def authorize_url(provider, opts \\ []) do
+  def authorize_url(provider, redirect_uri, opts \\ []) when is_binary(redirect_uri) do
     with {:ok, provider_mod} <- fetch_provider(provider) do
-      config = provider_mod.config() ++ opts
+      config = provider_mod.config(redirect_uri) ++ opts
       strategy = provider_mod.strategy()
       strategy.authorize_url(config)
     end
   end
 
-  def handle_callback(%Scope{} = scope, provider, params, session_params, opts \\ []) do
+  def handle_callback(%Scope{} = scope, provider, redirect_uri, params, session_params, opts \\ [])
+      when is_binary(redirect_uri) do
     with {:ok, provider_mod} <- fetch_provider(provider),
-         config = provider_mod.config() |> Keyword.put(:session_params, session_params) |> Keyword.merge(opts),
+         config =
+           provider_mod.config(redirect_uri)
+           |> Keyword.put(:session_params, session_params)
+           |> Keyword.merge(opts),
          strategy = provider_mod.strategy(),
          {:ok, %{token: token} = result} <- strategy.callback(config, params) do
       user_data = Map.get(result, :user) || %{}

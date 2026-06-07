@@ -1,6 +1,17 @@
 defmodule <%= app_module %>.Accounts do
-  alias <%= app_module %>.Accounts.{Account, AccountsRepository, MembersRepository}
-  alias <%= app_module %>.Accounts.{Invitation, InvitationRepository, InvitationNotifier}
+  @moduledoc """
+  The Accounts context manages accounts, members, and invitations.
+
+  URL generation for invitation emails lives in the web layer. Callers pass the
+  app's public `base_url` into `invite_user/5` so this context never reaches into
+  the endpoint, keeping the `<%= app_module %>` boundary free of `<%= web_module %>`.
+  """
+
+  alias <%= app_module %>.Accounts.Account
+  alias <%= app_module %>.Accounts.AccountsRepository
+  alias <%= app_module %>.Accounts.InvitationNotifier
+  alias <%= app_module %>.Accounts.InvitationRepository
+  alias <%= app_module %>.Accounts.MembersRepository
   alias <%= app_module %>.Authorization
   alias <%= app_module %>.Users
   alias <%= app_module %>.Users.Scope
@@ -133,15 +144,40 @@ defmodule <%= app_module %>.Accounts do
     Phoenix.PubSub.broadcast(<%= pubsub %>, "user:#{key}:invitations", message)
   end
 
-  def invite_user(scope, account_id, email, role)
+  @doc """
+  Invite a user to an account and email them the acceptance link.
+
+  `base_url` is the app's public base URL (e.g. `<%= endpoint %>.url()`),
+  passed down from the web layer so this context never references the web Endpoint.
+  Fails loudly if it isn't a non-empty `http(s)://…` string.
+  """
+  def invite_user(scope, account_id, email, role, base_url)
       when is_binary(email) and role in [:owner, :admin, :member] and not is_nil(account_id) do
+    base_url = require_base_url!(base_url)
+
     with :ok <- validate_manage_members_permission(scope, account_id),
          :ok <- validate_user_not_already_member(email, account_id),
          {:ok, invitation} <- create_invitation(scope, account_id, email, role),
-         :ok <- send_invitation_email(invitation) do
+         :ok <- send_invitation_email(invitation, base_url) do
       broadcast_invitation(scope, {:created, invitation})
       {:ok, invitation}
     end
+  end
+
+  defp require_base_url!(base_url) when is_binary(base_url) do
+    if base_url =~ ~r{^https?://} do
+      String.trim_trailing(base_url, "/")
+    else
+      raise ArgumentError,
+            "invite_user/5 requires an absolute http(s) base_url passed from the web layer " <>
+              "(e.g. <%= endpoint %>.url()); got: #{inspect(base_url)}"
+    end
+  end
+
+  defp require_base_url!(other) do
+    raise ArgumentError,
+          "invite_user/5 requires a base_url string passed from the web layer " <>
+            "(e.g. <%= endpoint %>.url()); got: #{inspect(other)}"
   end
 
   def accept_invitation(token, user_attrs) when is_binary(token) and is_map(user_attrs) do
@@ -215,8 +251,8 @@ defmodule <%= app_module %>.Accounts do
     InvitationRepository.create_invitation(scope, attrs)
   end
 
-  defp send_invitation_email(invitation) do
-    url = <%= endpoint %>.url() <> "/invitations/accept/#{invitation.token}"
+  defp send_invitation_email(invitation, base_url) do
+    url = base_url <> "/invitations/accept/#{invitation.token}"
 
     case InvitationNotifier.deliver_invitation_email(invitation, url) do
       {:ok, _} -> :ok

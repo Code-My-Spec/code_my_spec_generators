@@ -16,13 +16,10 @@ defmodule <%= app_module %>.Integrations.Providers.GitHub do
 
   @behaviour <%= app_module %>.Integrations.Providers.Behaviour
 
-  @callback_path "/integrations/oauth/callback/github"
-
   @impl true
-  def config do
+  def config(redirect_uri) when is_binary(redirect_uri) and redirect_uri != "" do
     client_id = Application.fetch_env!(:<%= app %>, :github_client_id)
     client_secret = Application.fetch_env!(:<%= app %>, :github_client_secret)
-    redirect_uri = <%= endpoint %>.url() <> @callback_path
 
     [
       client_id: client_id,
@@ -32,6 +29,12 @@ defmodule <%= app_module %>.Integrations.Providers.GitHub do
         scope: "user:email read:user"
       ]
     ]
+  end
+
+  def config(other) do
+    raise ArgumentError,
+          "GitHub.config/1 requires a non-empty redirect_uri string passed from the " <>
+            "web layer (e.g. <%= endpoint %>.url() <> callback_path); got: " <> inspect(other)
   end
 
   @impl true

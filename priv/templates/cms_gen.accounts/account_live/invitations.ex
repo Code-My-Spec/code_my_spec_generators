@@ -5,8 +5,8 @@ defmodule <%= web_module %>.AccountLive.Invitations do
   alias <%= app_module %>.Accounts.Invitation
   alias <%= app_module %>.Authorization
   alias <%= web_module %>.AccountLive.Components.Navigation
-  alias <%= web_module %>.InvitationsLive.Form, as: InviteForm
   alias <%= web_module %>.InvitationsLive.Components.PendingInvitations
+  alias <%= web_module %>.InvitationsLive.Form, as: InviteForm
 
   @impl true
   def render(assigns) do
@@ -92,7 +92,8 @@ defmodule <%= web_module %>.AccountLive.Invitations do
            socket.assigns.current_scope,
            socket.assigns.account.id,
            invitation_params["email"],
-           String.to_existing_atom(invitation_params["role"])
+           String.to_existing_atom(invitation_params["role"]),
+           <%= endpoint %>.url()
          ) do
       {:ok, _invitation} ->
         pending_invitations =

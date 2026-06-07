@@ -16,13 +16,10 @@ defmodule <%= app_module %>.Integrations.Providers.Google do
 
   @behaviour <%= app_module %>.Integrations.Providers.Behaviour
 
-  @callback_path "/integrations/oauth/callback/google"
-
   @impl true
-  def config do
+  def config(redirect_uri) when is_binary(redirect_uri) and redirect_uri != "" do
     client_id = Application.fetch_env!(:<%= app %>, :google_client_id)
     client_secret = Application.fetch_env!(:<%= app %>, :google_client_secret)
-    redirect_uri = <%= endpoint %>.url() <> @callback_path
 
     [
       client_id: client_id,
@@ -34,6 +31,12 @@ defmodule <%= app_module %>.Integrations.Providers.Google do
         prompt: "consent"
       ]
     ]
+  end
+
+  def config(other) do
+    raise ArgumentError,
+          "Google.config/1 requires a non-empty redirect_uri string passed from the " <>
+            "web layer (e.g. <%= endpoint %>.url() <> callback_path); got: " <> inspect(other)
   end
 
   @impl true

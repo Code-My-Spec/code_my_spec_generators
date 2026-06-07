@@ -8,6 +8,7 @@ defmodule <%= app_module %>.Codemyspec.Client do
   """
 
   alias <%= app_module %>.Integrations
+  alias <%= app_module %>.Integrations.Providers.Codemyspec
 
   @doc """
   Creates an issue on the CodeMySpec platform.
@@ -23,9 +24,7 @@ defmodule <%= app_module %>.Codemyspec.Client do
       issue_params =
         attrs
         |> Map.put("source", "user_feedback")
-        |> then(fn params ->
-          if attachments != [], do: Map.put(params, "attachments", attachments), else: params
-        end)
+        |> maybe_put_attachments(attachments)
 
       body = Jason.encode!(%{"issue" => issue_params})
 
@@ -46,6 +45,10 @@ defmodule <%= app_module %>.Codemyspec.Client do
       end
     end
   end
+
+  defp maybe_put_attachments(params, []), do: params
+  defp maybe_put_attachments(params, attachments),
+    do: Map.put(params, "attachments", attachments)
 
   @doc """
   Gets a presigned S3 upload URL from CodeMySpec.
@@ -106,7 +109,9 @@ defmodule <%= app_module %>.Codemyspec.Client do
   defp refresh_token(_scope, %{refresh_token: ""}), do: {:error, :token_expired}
 
   defp refresh_token(scope, integration) do
-    provider_config = <%= app_module %>.Integrations.Providers.Codemyspec.config()
+    # The OAuth2 refresh-token grant ignores redirect_uri; pass the OOB placeholder
+    # so we don't need a request-scoped URL here.
+    provider_config = Codemyspec.config("urn:ietf:wg:oauth:2.0:oob")
 
     body =
       Jason.encode!(%{

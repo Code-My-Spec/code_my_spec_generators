@@ -16,14 +16,11 @@ defmodule <%= app_module %>.Integrations.Providers.Codemyspec do
 
   @behaviour <%= app_module %>.Integrations.Providers.Behaviour
 
-  @callback_path "/integrations/oauth/callback/codemyspec"
-
   @impl true
-  def config do
+  def config(redirect_uri) when is_binary(redirect_uri) and redirect_uri != "" do
     base_url = Application.fetch_env!(:<%= app %>, :codemyspec_url)
     client_id = Application.fetch_env!(:<%= app %>, :codemyspec_client_id)
     client_secret = Application.fetch_env!(:<%= app %>, :codemyspec_client_secret)
-    redirect_uri = <%= endpoint %>.url() <> @callback_path
 
     [
       client_id: client_id,
@@ -37,6 +34,13 @@ defmodule <%= app_module %>.Integrations.Providers.Codemyspec do
         scope: "read write"
       ]
     ]
+  end
+
+  def config(other) do
+    raise ArgumentError,
+          "Codemyspec.config/1 requires a non-empty redirect_uri string passed from the " <>
+            "web layer (e.g. <%= endpoint %>.url() <> callback_path); got: " <>
+            inspect(other)
   end
 
   @impl true

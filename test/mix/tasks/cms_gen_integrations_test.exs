@@ -60,7 +60,7 @@ defmodule Mix.Tasks.CmsGen.IntegrationsTest do
         Application.app_dir(:code_my_spec_generators, "priv/templates/cms_gen.integrations")
 
       assert_file(Path.join(templates_dir, "provider_behaviour.ex"), [
-        "@callback config()",
+        "@callback config(redirect_uri :: String.t())",
         "@callback strategy()",
         "@callback normalize_user",
         "@optional_callbacks"
@@ -99,6 +99,39 @@ defmodule Mix.Tasks.CmsGen.IntegrationsTest do
         "def callback(conn",
         "def delete(conn",
         "OAuthStateStore"
+      ])
+    end
+
+    test "context surfaces update_integration delegate for token refresh" do
+      templates_dir =
+        Application.app_dir(:code_my_spec_generators, "priv/templates/cms_gen.integrations")
+
+      assert_file(Path.join(templates_dir, "integrations.ex"), [
+        "defdelegate update_integration(scope, provider, attrs), to: IntegrationRepository",
+        "@moduledoc"
+      ])
+    end
+
+    test "context threads redirect_uri instead of reaching into the endpoint" do
+      templates_dir =
+        Application.app_dir(:code_my_spec_generators, "priv/templates/cms_gen.integrations")
+
+      content = File.read!(Path.join(templates_dir, "integrations.ex"))
+      # The context must not call into the endpoint (only prose may mention it).
+      refute String.contains?(content, "<%= endpoint %>")
+      refute String.contains?(content, ".url()")
+      assert String.contains?(content, "def authorize_url(provider, redirect_uri")
+      assert String.contains?(content, "def handle_callback(%Scope{} = scope, provider, redirect_uri")
+    end
+
+    test "controller builds the redirect_uri in the web layer" do
+      templates_dir =
+        Application.app_dir(:code_my_spec_generators, "priv/templates/cms_gen.integrations")
+
+      assert_file(Path.join(templates_dir, "integrations_controller.ex"), [
+        "defp oauth_redirect_uri(provider_str)",
+        ".url() <> \"/integrations/oauth/callback/",
+        "Integrations.authorize_url(provider, oauth_redirect_uri(provider_str))"
       ])
     end
   end

@@ -13,13 +13,10 @@ defmodule <%= app_module %>.Integrations.Providers.<%= provider_module %> do
 
   @behaviour <%= app_module %>.Integrations.Providers.Behaviour
 
-  @callback_path "/integrations/oauth/callback/<%= provider_key %>"
-
   @impl true
-  def config do
+  def config(redirect_uri) when is_binary(redirect_uri) and redirect_uri != "" do
     client_id = Application.fetch_env!(:<%= app %>, :<%= provider_key %>_client_id)
     client_secret = Application.fetch_env!(:<%= app %>, :<%= provider_key %>_client_secret)
-    redirect_uri = <%= endpoint %>.url() <> @callback_path
 
     [
       client_id: client_id,
@@ -29,6 +26,13 @@ defmodule <%= app_module %>.Integrations.Providers.<%= provider_module %> do
         scope: "read"
       ]
     ]
+  end
+
+  def config(other) do
+    raise ArgumentError,
+          "<%= provider_module %>.config/1 requires a non-empty redirect_uri string passed " <>
+            "from the web layer (e.g. <%= endpoint %>.url() <> callback_path); got: " <>
+            inspect(other)
   end
 
   @impl true

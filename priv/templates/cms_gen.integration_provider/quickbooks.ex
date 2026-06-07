@@ -16,17 +16,14 @@ defmodule <%= app_module %>.Integrations.Providers.QuickBooks do
 
   @behaviour <%= app_module %>.Integrations.Providers.Behaviour
 
-  @callback_path "/integrations/oauth/callback/quickbooks"
-
   @authorize_url "https://appcenter.intuit.com/connect/oauth2"
   @token_url "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer"
   @revoke_url "https://developer.api.intuit.com/v2/oauth2/tokens/revoke"
 
   @impl true
-  def config do
+  def config(redirect_uri) when is_binary(redirect_uri) and redirect_uri != "" do
     client_id = Application.fetch_env!(:<%= app %>, :quickbooks_client_id)
     client_secret = Application.fetch_env!(:<%= app %>, :quickbooks_client_secret)
-    redirect_uri = <%= endpoint %>.url() <> @callback_path
 
     [
       client_id: client_id,
@@ -40,6 +37,12 @@ defmodule <%= app_module %>.Integrations.Providers.QuickBooks do
         scope: "com.intuit.quickbooks.accounting"
       ]
     ]
+  end
+
+  def config(other) do
+    raise ArgumentError,
+          "QuickBooks.config/1 requires a non-empty redirect_uri string passed from the " <>
+            "web layer (e.g. <%= endpoint %>.url() <> callback_path); got: " <> inspect(other)
   end
 
   @impl true

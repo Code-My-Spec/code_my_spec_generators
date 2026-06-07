@@ -9,7 +9,7 @@ defmodule <%= web_module %>.IntegrationsController do
   def request(conn, %{"provider" => provider_str}) do
     provider = String.to_existing_atom(provider_str)
 
-    case Integrations.authorize_url(provider) do
+    case Integrations.authorize_url(provider, oauth_redirect_uri(provider_str)) do
       {:ok, %{url: url, session_params: session_params}} ->
         state = Map.get(session_params, "state") || Map.get(session_params, :state)
         if state, do: OAuthStateStore.store(state, session_params)
@@ -41,10 +41,11 @@ defmodule <%= web_module %>.IntegrationsController do
     end
 
     conn = delete_session(conn, :oauth_provider)
+    redirect_uri = oauth_redirect_uri(to_string(provider))
 
     case Map.get(params, "error") do
       nil ->
-        case Integrations.handle_callback(scope, provider, params, session_params) do
+        case Integrations.handle_callback(scope, provider, redirect_uri, params, session_params) do
           {:ok, _integration} ->
             conn
             |> put_flash(:info, "Successfully connected to #{format_provider(provider)}")
@@ -79,6 +80,13 @@ defmodule <%= web_module %>.IntegrationsController do
         |> put_flash(:error, "No connection found")
         |> redirect(to: "/integrations")
     end
+  end
+
+  # Absolute OAuth callback URL, built from the runtime Endpoint and passed down to the
+  # Integrations context (which must not reference the web layer). Matches the router's
+  # `/integrations/oauth/callback/:provider` route.
+  defp oauth_redirect_uri(provider_str) when is_binary(provider_str) do
+    <%= endpoint %>.url() <> "/integrations/oauth/callback/#{provider_str}"
   end
 
   defp format_provider(:github), do: "GitHub"
