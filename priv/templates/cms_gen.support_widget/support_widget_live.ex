@@ -274,7 +274,18 @@ defmodule <%= web_module %>.SupportWidgetLive do
 
         <%!-- Chat --%>
         <div :if={@tab == :chat} data-test="chat-pane" class="flex min-h-0 flex-1 flex-col">
-          <div data-test="chat-messages" class="flex-1 space-y-2 overflow-y-auto p-3">
+          <script :type={Phoenix.LiveView.ColocatedHook} name=".ChatScroll">
+            export default {
+              mounted() {
+                this.scroll()
+                this.observer = new MutationObserver(() => this.scroll())
+                this.observer.observe(this.el, { childList: true, subtree: true })
+              },
+              destroyed() { this.observer && this.observer.disconnect() },
+              scroll() { this.el.scrollTop = this.el.scrollHeight },
+            }
+          </script>
+          <div id="cms-chat-scroll" phx-hook=".ChatScroll" data-test="chat-messages" class="flex-1 space-y-2 overflow-y-auto p-3">
             <button
               :if={@messages != []}
               type="button"
