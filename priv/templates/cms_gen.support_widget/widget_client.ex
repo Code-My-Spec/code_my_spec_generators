@@ -1,4 +1,4 @@
-defmodule <%= @app_module %>.CodeMySpec.WidgetClient do
+defmodule <%= app_module %>.CodeMySpec.WidgetClient do
   @moduledoc """
   Per-user Slipstream client bridging a logged-in user's support widget to
   CodeMySpec.
@@ -14,7 +14,7 @@ defmodule <%= @app_module %>.CodeMySpec.WidgetClient do
 
   require Logger
 
-  alias <%= @app_module %>.CodeMySpec.Widget
+  alias <%= app_module %>.CodeMySpec.Widget
 
   def start_link(opts) do
     user_id = to_string(Keyword.fetch!(opts, :user_id))
@@ -74,6 +74,13 @@ defmodule <%= @app_module %>.CodeMySpec.WidgetClient do
     {:ok, socket}
   end
 
+  # Reply to `request_screenshot_upload`: hand the presigned URL + key back to
+  # the widget so the browser can PUT the screenshot straight to S3.
+  def handle_reply(_ref, {:ok, %{"upload_url" => url, "s3_key" => key}}, socket) do
+    broadcast(socket, {:screenshot_upload, url, key})
+    {:ok, socket}
+  end
+
   def handle_reply(_ref, _reply, socket), do: {:ok, socket}
 
   @impl Slipstream
@@ -89,6 +96,11 @@ defmodule <%= @app_module %>.CodeMySpec.WidgetClient do
 
   def handle_cast({:load_older, before}, socket) do
     push(socket, socket.assigns.topic, "load_older", %{"before" => before})
+    {:noreply, socket}
+  end
+
+  def handle_cast({:request_screenshot_upload, content_type}, socket) do
+    push(socket, socket.assigns.topic, "request_screenshot_upload", %{"content_type" => content_type})
     {:noreply, socket}
   end
 
@@ -123,7 +135,7 @@ defmodule <%= @app_module %>.CodeMySpec.WidgetClient do
 
   defp broadcast(socket, message) do
     Phoenix.PubSub.broadcast(
-      <%= @pubsub %>,
+      <%= pubsub %>,
       Widget.topic(socket.assigns.user_id),
       message
     )
@@ -134,8 +146,8 @@ defmodule <%= @app_module %>.CodeMySpec.WidgetClient do
   # The deploy key is self-identifying on CodeMySpec (blind index), so the
   # widget presents only the key — no project id.
   defp build_uri(user_id, user_email) do
-    base = Application.get_env(:<%= @app %>, :codemyspec_widget_url)
-    deploy_key = Application.get_env(:<%= @app %>, :deploy_key)
+    base = Application.get_env(:<%= app %>, :codemyspec_widget_url)
+    deploy_key = Application.get_env(:<%= app %>, :deploy_key)
 
     if present?(base) and present?(deploy_key) do
       query =
