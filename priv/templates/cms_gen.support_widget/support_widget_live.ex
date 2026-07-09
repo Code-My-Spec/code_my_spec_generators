@@ -29,6 +29,9 @@ defmodule <%= web_module %>.SupportWidgetLive do
       |> assign(:open, false)
       |> assign(:tab, :chat)
       |> assign(:messages, [])
+      |> assign(:chat_body, "")
+      |> assign(:pending_attachments, [])
+      |> assign(:chat_pending_meta, nil)
       |> assign(:fb_submitted, false)
       |> assign(:fb_error, nil)
       |> assign(:fb_title, "")
@@ -60,12 +63,50 @@ defmodule <%= web_module %>.SupportWidgetLive do
 
   def handle_event("send", %{"message" => %{"body" => body}}, socket) do
     body = String.trim(body)
+    attachments = socket.assigns.pending_attachments
 
-    if body != "" and socket.assigns.user do
-      Widget.send_message(socket.assigns.user.id, body)
+    if socket.assigns.user && (body != "" or attachments != []) do
+      Widget.send_message(socket.assigns.user.id, body, attachments)
     end
 
-    {:noreply, socket}
+    {:noreply, socket |> assign(:pending_attachments, []) |> assign(:chat_body, "")}
+  end
+
+  def handle_event("chat_change", %{"message" => %{"body" => body}}, socket) do
+    {:noreply, assign(socket, :chat_body, body)}
+  end
+
+  # A file was picked in the chat composer — get a presigned URL to upload it to.
+  def handle_event("request_chat_upload", %{"content_type" => ct, "filename" => filename}, socket) do
+    if socket.assigns.user do
+      Widget.request_chat_upload(socket.assigns.user.id, ct, filename)
+    end
+
+    {:noreply, assign(socket, :chat_pending_meta, %{"filename" => filename, "content_type" => ct})}
+  end
+
+  # The browser finished uploading the file to S3 — stage it for the next send.
+  def handle_event("chat_uploaded", %{"s3_key" => key} = params, socket) do
+    attachment = %{
+      "s3_key" => key,
+      "filename" => params["filename"],
+      "content_type" => params["content_type"],
+      "size" => params["size"]
+    }
+
+    {:noreply,
+     socket
+     |> update(:pending_attachments, &(&1 ++ [attachment]))
+     |> assign(:chat_pending_meta, nil)}
+  end
+
+  def handle_event("chat_upload_failed", _params, socket) do
+    {:noreply, assign(socket, :chat_pending_meta, nil)}
+  end
+
+  def handle_event("remove_attachment", %{"key" => key}, socket) do
+    {:noreply,
+     update(socket, :pending_attachments, fn atts -> Enum.reject(atts, &(&1["s3_key"] == key)) end)}
   end
 
   def handle_event("load_older", _params, socket) do
@@ -173,6 +214,19 @@ defmodule <%= web_module %>.SupportWidgetLive do
      })}
   end
 
+  # CodeMySpec returned a presigned URL for a chat attachment — tell the hook to
+  # PUT the file the browser is holding.
+  def handle_info({:chat_upload, url, key}, socket) do
+    meta = socket.assigns.chat_pending_meta || %{}
+
+    {:noreply,
+     push_event(socket, "chat_upload_url", %{
+       url: url,
+       s3_key: key,
+       content_type: meta["content_type"] || "application/octet-stream"
+     })}
+  end
+
   def handle_info(_message, socket), do: {:noreply, socket}
 
   defp oldest_cursor([%{"inserted_at" => ts} | _]), do: ts
@@ -180,6 +234,14 @@ defmodule <%= web_module %>.SupportWidgetLive do
 
   defp tab_atom("feedback"), do: :feedback
   defp tab_atom(_), do: :chat
+
+  defp image_attachment?(%{"content_type" => ct}) when is_binary(ct),
+    do: String.starts_with?(ct, "image/")
+
+  defp image_attachment?(_attachment), do: false
+
+  defp message_attachments(%{"attachments" => list}) when is_list(list), do: list
+  defp message_attachments(_message), do: []
 
   @impl true
   def render(assigns) do
@@ -194,6 +256,12 @@ defmodule <%= web_module %>.SupportWidgetLive do
         export default {
           mounted() {
             this.el.addEventListener("click", async (e) => {
+              // Chat composer: the paperclip opens the hidden file picker.
+              if (e.target.closest("[data-attach-chat]")) {
+                const inp = this.el.querySelector("[data-chat-file]")
+                if (inp) inp.click()
+                return
+              }
               if (!e.target.closest("[data-capture-screenshot]")) return
               this.pushEvent("capture_start", {})
               try {
@@ -207,6 +275,19 @@ defmodule <%= web_module %>.SupportWidgetLive do
                 console.error("Screenshot capture failed:", err)
                 this.pushEvent("screenshot_failed", {})
               }
+            })
+
+            // A chat file was picked (delegated — the input renders only when open).
+            this.el.addEventListener("change", (e) => {
+              const inp = e.target.closest("[data-chat-file]")
+              if (!inp || !inp.files || !inp.files[0]) return
+              const file = inp.files[0]
+              this.pendingFile = file
+              this.pushEvent("request_chat_upload", {
+                content_type: file.type || "application/octet-stream",
+                filename: file.name,
+              })
+              inp.value = ""
             })
 
             // Server handed back a presigned URL — PUT the bytes straight to S3.
@@ -225,6 +306,30 @@ defmodule <%= web_module %>.SupportWidgetLive do
                 this.pushEvent("screenshot_failed", {})
               } finally {
                 this.pendingBlob = null
+              }
+            })
+
+            this.handleEvent("chat_upload_url", async ({ url, s3_key, content_type }) => {
+              if (!this.pendingFile) return
+              const file = this.pendingFile
+              try {
+                const res = await fetch(url, {
+                  method: "PUT",
+                  body: file,
+                  headers: { "content-type": content_type },
+                })
+                if (!res.ok) throw new Error("upload failed: " + res.status)
+                this.pushEvent("chat_uploaded", {
+                  s3_key: s3_key,
+                  filename: file.name,
+                  content_type: file.type || content_type,
+                  size: file.size,
+                })
+              } catch (err) {
+                console.error("Chat upload failed:", err)
+                this.pushEvent("chat_upload_failed", {})
+              } finally {
+                this.pendingFile = null
               }
             })
           },
@@ -306,23 +411,74 @@ defmodule <%= web_module %>.SupportWidgetLive do
               data-role={message["role"]}
               class={["chat", if(message["role"] == "user", do: "chat-end", else: "chat-start")]}
             >
-              <div class="chat-bubble whitespace-pre-wrap break-words">{message["body"]}</div>
+              <div class="chat-bubble max-w-[15rem] break-words">
+                <p :if={message["body"] not in [nil, ""]} class="whitespace-pre-wrap">{message["body"]}</p>
+                <div :for={att <- message_attachments(message)} class="mt-1">
+                  <a :if={image_attachment?(att)} href={att["url"]} target="_blank" rel="noopener">
+                    <img src={att["url"]} alt={att["filename"]} class="max-h-40 rounded" />
+                  </a>
+                  <a
+                    :if={not image_attachment?(att)}
+                    href={att["url"]}
+                    target="_blank"
+                    rel="noopener"
+                    class="inline-flex items-center gap-1 text-sm underline"
+                  >
+                    <.icon name="hero-paper-clip" class="size-4" /> {att["filename"]}
+                  </a>
+                </div>
+              </div>
             </div>
           </div>
 
-          <form phx-submit="send" data-test="chat-form" class="flex gap-2 border-t border-base-300 p-3">
-            <input
-              type="text"
-              name="message[body]"
-              data-test="chat-input"
-              placeholder="Type a message…"
-              autocomplete="off"
-              class="input input-bordered input-sm flex-1"
-            />
-            <button type="submit" class="btn btn-primary btn-sm" aria-label="Send">
-              <.icon name="hero-paper-airplane" class="size-4" />
-            </button>
-          </form>
+          <div class="border-t border-base-300 p-3">
+            <div :if={@pending_attachments != []} data-test="pending-attachments" class="mb-2 flex flex-wrap gap-1.5">
+              <span
+                :for={att <- @pending_attachments}
+                class="badge badge-ghost gap-1 max-w-[10rem]"
+              >
+                <.icon name="hero-paper-clip" class="size-3" />
+                <span class="truncate">{att["filename"]}</span>
+                <button
+                  type="button"
+                  phx-click="remove_attachment"
+                  phx-value-key={att["s3_key"]}
+                  aria-label="Remove attachment"
+                  class="opacity-70 hover:opacity-100"
+                >
+                  ×
+                </button>
+              </span>
+              <span :if={@chat_pending_meta} class="badge badge-ghost gap-1">
+                <.icon name="hero-arrow-path" class="size-3 animate-spin" /> Uploading…
+              </span>
+            </div>
+
+            <form phx-submit="send" phx-change="chat_change" data-test="chat-form" class="flex gap-2">
+              <input type="file" data-chat-file data-test="chat-file" class="hidden" />
+              <button
+                type="button"
+                data-attach-chat
+                data-test="chat-attach"
+                class="btn btn-ghost btn-sm btn-square"
+                aria-label="Attach a file"
+              >
+                <.icon name="hero-paper-clip" class="size-4" />
+              </button>
+              <input
+                type="text"
+                name="message[body]"
+                value={@chat_body}
+                data-test="chat-input"
+                placeholder="Type a message…"
+                autocomplete="off"
+                class="input input-bordered input-sm flex-1"
+              />
+              <button type="submit" class="btn btn-primary btn-sm" aria-label="Send">
+                <.icon name="hero-paper-airplane" class="size-4" />
+              </button>
+            </form>
+          </div>
         </div>
 
         <%!-- Report a problem --%>

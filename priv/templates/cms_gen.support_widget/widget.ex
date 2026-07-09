@@ -36,12 +36,18 @@ defmodule <%= app_module %>.CodeMySpec.Widget do
     :exit, _ -> %{messages: []}
   end
 
-  def send_message(user_id, body), do: cast(user_id, {:send_message, body})
+  def send_message(user_id, body, attachments \\ []),
+    do: cast(user_id, {:send_message, body, attachments})
+
   def load_older(user_id, before), do: cast(user_id, {:load_older, before})
 
   @doc "Ask CodeMySpec for a presigned S3 URL to upload a screenshot to."
   def request_screenshot_upload(user_id, content_type),
     do: cast(user_id, {:request_screenshot_upload, content_type})
+
+  @doc "Ask CodeMySpec for a presigned S3 URL to upload a chat attachment to."
+  def request_chat_upload(user_id, content_type, filename),
+    do: cast(user_id, {:request_chat_upload, content_type, filename})
 
   @doc "Report a problem (title/description/severity) — filed as a CodeMySpec issue."
   def submit_feedback(user_id, payload), do: cast(user_id, {:submit_feedback, payload})

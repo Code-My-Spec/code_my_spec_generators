@@ -74,8 +74,13 @@ defmodule <%= app_module %>.CodeMySpec.WidgetClient do
     {:ok, socket}
   end
 
-  # Reply to `request_screenshot_upload`: hand the presigned URL + key back to
-  # the widget so the browser can PUT the screenshot straight to S3.
+  # Reply to a presigned-upload request. The key's prefix says which one:
+  # `chat/…` is a chat attachment, `issues/…` is a report screenshot.
+  def handle_reply(_ref, {:ok, %{"upload_url" => url, "s3_key" => "chat/" <> _ = key}}, socket) do
+    broadcast(socket, {:chat_upload, url, key})
+    {:ok, socket}
+  end
+
   def handle_reply(_ref, {:ok, %{"upload_url" => url, "s3_key" => key}}, socket) do
     broadcast(socket, {:screenshot_upload, url, key})
     {:ok, socket}
@@ -89,8 +94,12 @@ defmodule <%= app_module %>.CodeMySpec.WidgetClient do
   end
 
   @impl Slipstream
-  def handle_cast({:send_message, body}, socket) do
-    push(socket, socket.assigns.topic, "send_message", %{"body" => body})
+  def handle_cast({:send_message, body, attachments}, socket) do
+    push(socket, socket.assigns.topic, "send_message", %{
+      "body" => body,
+      "attachments" => attachments
+    })
+
     {:noreply, socket}
   end
 
@@ -101,6 +110,15 @@ defmodule <%= app_module %>.CodeMySpec.WidgetClient do
 
   def handle_cast({:request_screenshot_upload, content_type}, socket) do
     push(socket, socket.assigns.topic, "request_screenshot_upload", %{"content_type" => content_type})
+    {:noreply, socket}
+  end
+
+  def handle_cast({:request_chat_upload, content_type, filename}, socket) do
+    push(socket, socket.assigns.topic, "request_chat_upload", %{
+      "content_type" => content_type,
+      "filename" => filename
+    })
+
     {:noreply, socket}
   end
 
