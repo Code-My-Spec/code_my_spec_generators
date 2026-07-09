@@ -1,7 +1,14 @@
 defmodule Mix.Tasks.CmsGen.FeedbackWidget do
-  @shortdoc "Generates a CodeMySpec feedback widget"
+  @shortdoc "DEPRECATED — use cms_gen.support_widget (chat + report a problem)"
 
   @moduledoc """
+  > #### Deprecated {: .warning}
+  >
+  > Superseded by `mix cms_gen.support_widget`, which does everything this does
+  > (report an issue) **plus live chat**, over one deploy-key socket connection
+  > instead of OAuth/REST. Prefer the support widget for new apps; this
+  > feedback-only widget remains only for existing installs.
+
   Generates a floating feedback widget that reports issues to CodeMySpec.
 
       $ mix cms_gen.feedback_widget
