@@ -14,7 +14,9 @@ defmodule <%= app_module %>.Integrations do
 
   defdelegate get_integration(scope, provider), to: IntegrationRepository
   defdelegate list_integrations(scope), to: IntegrationRepository
+  defdelegate create_integration(scope, attrs), to: IntegrationRepository
   defdelegate update_integration(scope, provider, attrs), to: IntegrationRepository
+  defdelegate upsert_integration(scope, provider, attrs), to: IntegrationRepository
   defdelegate delete_integration(scope, provider), to: IntegrationRepository
   defdelegate connected?(scope, provider), to: IntegrationRepository
 
