@@ -1,0 +1,9 @@
+<h1>Blog</h1>
+
+<p :if={@posts == []}>No posts yet.</p>
+
+<ul>
+  <li :for={post <- @posts}>
+    <a href={"/blog/#{post.slug}"}>{post.title}</a>
+  </li>
+</ul>

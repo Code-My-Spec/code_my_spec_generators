@@ -91,6 +91,14 @@ defmodule Mix.Tasks.CmsGen.Content do
       # Web — the endpoint the publishing flow calls (POST /sync and POST /pull)
       {:eex, "content_sync_controller.ex",
        Path.join([web_lib_path, "controllers", "content_sync_controller.ex"])},
+      # Web — the reader-facing half. Content that arrives and is never rendered
+      # is indistinguishable, from outside, from content that never arrived.
+      {:eex, "blog_controller.ex", Path.join([web_lib_path, "controllers", "blog_controller.ex"])},
+      {:eex, "blog_html.ex", Path.join([web_lib_path, "controllers", "blog_html.ex"])},
+      {:eex, "blog_html/index.html.heex",
+       Path.join([web_lib_path, "controllers", "blog_html", "index.html.heex"])},
+      {:eex, "blog_html/show.html.heex",
+       Path.join([web_lib_path, "controllers", "blog_html", "show.html.heex"])},
       # Migration (contents, tags, content_tags)
       {:eex, "migration.exs",
        Path.join(["priv", "repo", "migrations", "#{timestamp}_create_content_tables.exs"])}
@@ -155,6 +163,16 @@ defmodule Mix.Tasks.CmsGen.Content do
 
         post "/sync", ContentSyncController, :sync
         post "/pull", ContentSyncController, :pull
+      end
+
+      # The reader-facing half. Content that arrives and is never rendered is
+      # indistinguishable, from outside, from content that never arrived — and a
+      # publish proves itself by fetching a post back from here.
+      scope "/", #{binding[:web_module]} do
+        pipe_through :browser
+
+        get "/blog", BlogController, :index
+        get "/blog/:slug", BlogController, :show
       end
     """
 
