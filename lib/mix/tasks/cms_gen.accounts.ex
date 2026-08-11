@@ -125,13 +125,12 @@ defmodule Mix.Tasks.CmsGen.Accounts do
     Mix.Phoenix.prompt_for_conflicts(files)
     Generator.copy_templates("priv/templates/cms_gen.accounts", binding, files)
 
+    scope_patch = patch_scope(scope_file)
+
     Generator.print_shell_instructions("""
     Accounts generator complete!
 
-    1. Add the following fields to your Scope defstruct in #{scope_file}:
-
-        active_account: nil,
-        active_account_id: nil
+    #{scope_patch}
 
     2. Run the migration:
 
@@ -157,4 +156,73 @@ defmodule Mix.Tasks.CmsGen.Accounts do
        account selection before accessing protected routes.
     """)
   end
+
+  # The generated code reads `scope.active_account_id`, so the struct has to
+  # carry it. This used to be step 1 of the printed instructions, which meant
+  # every generated project failed to compile until a human read them — and
+  # `agent_tasks/code_generation.ex` drives this chain unattended, so it never
+  # did. Four green generators, then `KeyError: key :active_account_id not
+  # found`, naming a module the operator had not touched.
+  #
+  # Still reports what it did, because silently editing a file the operator
+  # wrote is worse than telling them.
+  defp patch_scope(scope_file) do
+    scope_file
+    |> File.read()
+    |> apply_scope_patch(scope_file)
+  end
+
+  defp apply_scope_patch({:error, reason}, scope_file) do
+    """
+    1. COULD NOT READ #{scope_file} (#{inspect(reason)}) — add these fields to
+       its defstruct by hand, or the project will not compile:
+
+        active_account: nil,
+        active_account_id: nil
+    """
+  end
+
+  defp apply_scope_patch({:ok, contents}, scope_file) do
+    contents
+    |> String.contains?("active_account_id")
+    |> write_scope_patch(contents, scope_file)
+  end
+
+  defp write_scope_patch(true, _contents, scope_file) do
+    "1. #{scope_file} already carries the account fields — left alone."
+  end
+
+  defp write_scope_patch(false, contents, scope_file) do
+    patched =
+      String.replace(
+        contents,
+        ~r/defstruct user: nil/,
+        "defstruct user: nil, active_account: nil, active_account_id: nil",
+        global: false
+      )
+
+    patched
+    |> Kernel.==(contents)
+    |> save_scope_patch(patched, scope_file)
+  end
+
+  # Unrecognised shape: say so rather than write something that might not be
+  # right. A defstruct this does not understand is a file somebody has already
+  # edited, and guessing at it is how a generator eats someone's work.
+  defp save_scope_patch(true, _patched, scope_file) do
+    """
+    1. COULD NOT PATCH #{scope_file} — its defstruct is not the one
+       `mix phx.gen.auth` generates. Add these fields by hand, or the project
+       will not compile:
+
+        active_account: nil,
+        active_account_id: nil
+    """
+  end
+
+  defp save_scope_patch(false, patched, scope_file) do
+    File.write!(scope_file, patched)
+    "1. Added active_account and active_account_id to #{scope_file}."
+  end
+
 end

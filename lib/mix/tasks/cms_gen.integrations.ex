@@ -84,18 +84,12 @@ defmodule Mix.Tasks.CmsGen.Integrations do
     Mix.Phoenix.prompt_for_conflicts(files)
     Generator.copy_templates("priv/templates/cms_gen.integrations", binding, files)
 
+    deps_patch = patch_deps()
+
     Generator.print_shell_instructions("""
     Integrations generator complete!
 
-    1. Add the following dependencies to your mix.exs deps:
-
-        {:assent, "~> 0.3"},
-        {:cloak_ecto, "~> 1.3"},
-        {:cloak, "~> 1.1"}
-
-       Then run:
-
-        $ mix deps.get
+    #{deps_patch}
 
     2. Add #{binding[:app_module]}.Integrations.OAuthStateStore to your Application
        supervision tree (before the Endpoint):
@@ -126,4 +120,72 @@ defmodule Mix.Tasks.CmsGen.Integrations do
         live "/integrations", IntegrationLive.Index, :index
     """)
   end
+
+  @added_deps [
+    ~s({:assent, "~> 0.3"}),
+    ~s({:cloak_ecto, "~> 1.3"}),
+    ~s({:cloak, "~> 1.1"})
+  ]
+
+  # Added rather than asked for. This generator writes `lib/<app>/vault.ex` and
+  # `lib/<app>/encrypted/binary.ex`, and both need cloak — so without the deps
+  # the modules it just wrote cannot compile, and the schema referencing them
+  # fails with `unknown type <App>.Encrypted.Binary`, naming a module the
+  # operator has never heard of.
+  #
+  # It used to be step 1 of the printed instructions. A human reads those;
+  # `agent_tasks/code_generation.ex` drives this chain unattended and does not,
+  # so the standard scaffold path ended in a project that would not build.
+  defp patch_deps do
+    "mix.exs"
+    |> File.read()
+    |> apply_deps_patch()
+  end
+
+  defp apply_deps_patch({:error, reason}) do
+    "1. COULD NOT READ mix.exs (#{inspect(reason)}) — add these deps by hand:\n\n" <>
+      Enum.map_join(@added_deps, "\n", &("        " <> &1 <> ","))
+  end
+
+  defp apply_deps_patch({:ok, contents}) do
+    missing = Enum.reject(@added_deps, &String.contains?(contents, dep_name(&1)))
+
+    missing
+    |> Enum.empty?()
+    |> write_deps_patch(contents, missing)
+  end
+
+  defp write_deps_patch(true, _contents, _missing), do: "1. mix.exs already has the OAuth deps."
+
+  defp write_deps_patch(false, contents, missing) do
+    patched =
+      String.replace(
+        contents,
+        ~r/(\n\s*defp deps do\n\s*\[\n)/,
+        "\\1" <> Enum.map_join(missing, "", &("      " <> &1 <> ",\n")),
+        global: false
+      )
+
+    patched
+    |> Kernel.==(contents)
+    |> save_deps_patch(patched, missing)
+  end
+
+  # An unrecognised `deps/0` is a file somebody has already shaped by hand, and
+  # guessing at it is how a generator eats someone's work.
+  defp save_deps_patch(true, _patched, missing) do
+    "1. COULD NOT PATCH mix.exs — add these to deps/0 by hand:\n\n" <>
+      Enum.map_join(missing, "\n", &("        " <> &1 <> ","))
+  end
+
+  defp save_deps_patch(false, patched, missing) do
+    File.write!("mix.exs", patched)
+
+    "1. Added #{Enum.map_join(missing, ", ", &dep_name/1)} to mix.exs — run `mix deps.get`."
+  end
+
+  defp dep_name(dep) do
+    dep |> String.split([":", ","]) |> Enum.at(1)
+  end
+
 end
