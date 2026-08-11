@@ -11,7 +11,14 @@ defmodule <%= app_module %>.Content.ExAwsReqClient do
   @impl true
   def request(method, url, body, headers, _http_opts \\ []) do
     opts =
-      [method: method, url: url, body: body, headers: headers, decode_body: false, retry: false]
+      [
+        method: method,
+        url: url,
+        body: body,
+        headers: drop_host(headers),
+        decode_body: false,
+        retry: false
+      ]
       |> maybe_plug()
 
     case Req.request(opts) do
@@ -26,6 +33,19 @@ defmodule <%= app_module %>.Content.ExAwsReqClient do
       {:error, reason} ->
         {:error, %{reason: reason}}
     end
+  end
+
+  # ExAws sends an explicit `host` header because SigV4 signs it, and Req derives
+  # one of its own from the URL. Passing both puts two Host headers on the wire,
+  # which S3-compatible servers reject outright:
+  #
+  #     400 BadRequest — An error occurred when parsing the HTTP request
+  #
+  # Dropping ours is safe: the value Req derives is the same one that was
+  # signed, because it comes from the same URL. Keeping ours instead is not —
+  # it would have to win, and Req offers no such guarantee.
+  defp drop_host(headers) do
+    Enum.reject(headers, fn {name, _value} -> String.downcase(name) == "host" end)
   end
 
   defp maybe_plug(opts) do
