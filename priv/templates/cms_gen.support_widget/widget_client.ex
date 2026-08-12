@@ -25,15 +25,18 @@ defmodule <%= app_module %>.CodeMySpec.WidgetClient do
   def init(opts) do
     user_id = to_string(opts.user_id)
     user_email = opts.user_email
+    origin = Map.get(opts, :origin)
 
-    case build_uri(user_id, user_email) do
+    case build_uri(user_id, user_email, origin) do
       {:ok, uri} ->
         socket =
           new_socket()
           |> assign(:user_id, user_id)
           |> assign(:user_email, user_email)
+          |> assign(:origin, origin)
           |> assign(:topic, "conversation:#{user_id}")
           |> assign(:messages, [])
+          |> assign(:connected, false)
           |> assign(:reconnect_attempts, 0)
           |> connect!(uri: uri)
 
@@ -52,7 +55,9 @@ defmodule <%= app_module %>.CodeMySpec.WidgetClient do
 
   @impl Slipstream
   def handle_join(_topic, _reply, socket) do
-    {:ok, assign(socket, :reconnect_attempts, 0)}
+    socket = socket |> assign(:reconnect_attempts, 0) |> assign(:connected, true)
+    broadcast(socket, {:connected, true})
+    {:ok, socket}
   end
 
   @impl Slipstream
@@ -90,7 +95,8 @@ defmodule <%= app_module %>.CodeMySpec.WidgetClient do
 
   @impl Slipstream
   def handle_call(:state, _from, socket) do
-    {:reply, %{messages: socket.assigns.messages}, socket}
+    {:reply, %{messages: socket.assigns.messages, connected: socket.assigns[:connected] == true},
+     socket}
   end
 
   @impl Slipstream
@@ -135,12 +141,18 @@ defmodule <%= app_module %>.CodeMySpec.WidgetClient do
     delay = backoff(attempts)
     Logger.info("[WidgetClient] disconnected (#{inspect(reason)}), reconnecting in #{delay}ms")
     Process.send_after(self(), :reconnect, delay)
-    {:ok, assign(socket, :reconnect_attempts, attempts + 1)}
+
+    # Say so rather than reconnecting silently. A widget that looks live while
+    # its backend is gone accepts a message and drops it, and the visitor
+    # believes they were heard — worse than showing unavailable.
+    socket = socket |> assign(:connected, false) |> assign(:reconnect_attempts, attempts + 1)
+    broadcast(socket, {:connected, false})
+    {:ok, socket}
   end
 
   @impl Slipstream
   def handle_info(:reconnect, socket) do
-    case build_uri(socket.assigns.user_id, socket.assigns.user_email) do
+    case build_uri(socket.assigns.user_id, socket.assigns.user_email, socket.assigns.origin) do
       {:ok, uri} ->
         {:ok, socket} = connect(socket, uri: uri)
         {:noreply, socket}
@@ -163,7 +175,7 @@ defmodule <%= app_module %>.CodeMySpec.WidgetClient do
 
   # The deploy key is self-identifying on CodeMySpec (blind index), so the
   # widget presents only the key — no project id.
-  defp build_uri(user_id, user_email) do
+  defp build_uri(user_id, user_email, origin) do
     base = Application.get_env(:<%= app %>, :codemyspec_widget_url)
     deploy_key = Application.get_env(:<%= app %>, :deploy_key)
 
@@ -173,6 +185,16 @@ defmodule <%= app_module %>.CodeMySpec.WidgetClient do
           "deploy_key" => deploy_key,
           "user_id" => user_id,
           "user_email" => user_email,
+          # Where this app is actually running. CodeMySpec stamps it on the
+          # messages that arrive and uses it to tell a widget that works for
+          # visitors apart from one that has only ever worked on the author's
+          # laptop — the same deploy key serves both.
+          #
+          # Handed in by the caller rather than read from the endpoint here:
+          # this module is in the app namespace and the endpoint is in the web
+          # one, and reaching across is a boundary violation the compiler
+          # reports on every build of the generated project.
+          "origin" => origin,
           "vsn" => "2.0.0"
         })
 

@@ -86,12 +86,13 @@ defmodule Mix.Tasks.CmsGen.SupportWidget do
         {Registry, keys: :unique, name: #{base}.CodeMySpec.WidgetRegistry},
         {DynamicSupervisor, strategy: :one_for_one, name: #{base}.CodeMySpec.WidgetSupervisor},
 
-    3. Render the widget for logged-in users in
-       lib/#{app}_web/components/layouts/root.html.heex, before </body>:
+    3. Render the widget in
+       lib/#{app}_web/components/layouts/root.html.heex, before </body>.
+       Unconditionally — visitors who never signed up are who the most useful
+       feedback comes from, and the widget gives them a session-derived
+       identity of their own:
 
-        <%= if @current_scope && @current_scope.user do %>
-          {live_render(@conn, #{web_module}.SupportWidgetLive, id: "codemyspec-support", sticky: true)}
-        <% end %>
+        {live_render(@conn, #{web_module}.SupportWidgetLive, id: "codemyspec-support", sticky: true)}
 
     4. Configure the widget socket URL (reuses your existing :deploy_key),
        e.g. in runtime.exs:

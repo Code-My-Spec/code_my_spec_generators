@@ -18,8 +18,9 @@ defmodule <%= app_module %>.CodeMySpec.Widget do
   def topic(user_id), do: "codemyspec:widget:#{user_id}"
 
   @doc "Starts the user's client if not already running. Idempotent."
-  def ensure_started(user_id, user_email) do
-    spec = {WidgetClient, [user_id: to_string(user_id), user_email: user_email]}
+  def ensure_started(user_id, user_email, origin \\ nil) do
+    spec =
+      {WidgetClient, [user_id: to_string(user_id), user_email: user_email, origin: origin]}
 
     case DynamicSupervisor.start_child(@supervisor, spec) do
       {:ok, pid} -> {:ok, pid}
@@ -33,7 +34,9 @@ defmodule <%= app_module %>.CodeMySpec.Widget do
   def state(user_id) do
     GenServer.call(via(user_id), :state)
   catch
-    :exit, _ -> %{messages: []}
+    # No client running is not "fine, no messages" — it is the widget being
+    # unavailable, and the widget has to be able to say so.
+    :exit, _ -> %{messages: [], connected: false}
   end
 
   def send_message(user_id, body, attachments \\ []),

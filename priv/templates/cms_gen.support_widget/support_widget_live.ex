@@ -20,12 +20,21 @@ defmodule <%= web_module %>.SupportWidgetLive do
   alias <%= app_module %>.CodeMySpec.Widget
 
   @impl true
-  def mount(_params, _session, socket) do
+  def mount(_params, session, socket) do
     user = socket.assigns[:current_scope] && socket.assigns.current_scope.user
+
+    # The visitor who never signed up is the one with the most to say about
+    # bouncing off the product, and asking them to register first loses exactly
+    # that — so the widget renders for everyone. Their identity is derived from
+    # the session, which keeps one client per browser rather than one per page
+    # view, and claims nothing about who they are.
+    identity = identity(user, session)
 
     socket =
       socket
       |> assign(:user, user)
+      |> assign(:identity, identity)
+      |> assign(:widget_state, widget_state(false))
       |> assign(:open, false)
       |> assign(:tab, :chat)
       |> assign(:messages, [])
@@ -42,15 +51,36 @@ defmodule <%= web_module %>.SupportWidgetLive do
       |> assign(:pending_content_type, nil)
       |> assign(:capturing, false)
 
-    if connected?(socket) and user do
-      Widget.ensure_started(user.id, user.email)
-      Phoenix.PubSub.subscribe(<%= pubsub %>, Widget.topic(user.id))
-      %{messages: messages} = Widget.state(user.id)
-      {:ok, assign(socket, :messages, messages), layout: false}
+    # Only for a real browser session. A plain GET — a crawler, or CodeMySpec's
+    # own presence probe — renders the launcher and opens nothing, so scraping
+    # the site cannot spawn connections.
+    if connected?(socket) do
+      Widget.ensure_started(identity.id, identity.email, <%= web_module %>.Endpoint.url())
+      Phoenix.PubSub.subscribe(<%= pubsub %>, Widget.topic(identity.id))
+      %{messages: messages, connected: connected} = Widget.state(identity.id)
+
+      {:ok,
+       socket
+       |> assign(:messages, messages)
+       |> assign(:widget_state, widget_state(connected)), layout: false}
     else
       {:ok, socket, layout: false}
     end
   end
+
+  # Signed-in users keep their own thread across devices; a visitor gets one
+  # per browser session. `session_id` is whatever the host app already puts in
+  # the session; the fallback keeps this working in apps that put nothing.
+  defp identity(%{id: id, email: email}, _session), do: %{id: to_string(id), email: email}
+
+  defp identity(nil, session) do
+    id = session["live_socket_id"] || session["_csrf_token"] || "visitor"
+    digest = :crypto.hash(:sha256, id) |> Base.url_encode64(padding: false) |> binary_part(0, 16)
+    %{id: "visitor-" <> digest, email: "visitor-#{digest}@visitors.invalid"}
+  end
+
+  defp widget_state(true), do: "connected"
+  defp widget_state(false), do: "unavailable"
 
   @impl true
   def handle_event("toggle", _params, socket) do
@@ -196,6 +226,10 @@ defmodule <%= web_module %>.SupportWidgetLive do
   end
 
   @impl true
+  def handle_info({:connected, connected}, socket) do
+    {:noreply, assign(socket, :widget_state, widget_state(connected))}
+  end
+
   def handle_info({:new_message, payload}, socket) do
     {:noreply, assign(socket, :messages, socket.assigns.messages ++ [payload])}
   end
@@ -246,9 +280,14 @@ defmodule <%= web_module %>.SupportWidgetLive do
   @impl true
   def render(assigns) do
     ~H"""
+    <%!-- `data-cms-widget*` are a contract, not decoration: an outside prober
+         (CodeMySpec's provisioning widget step) reads them over plain HTTP to
+         answer "is the widget on this site, can it be opened, and does it know
+         its backend is gone". Renaming them breaks that check silently. --%>
     <div
-      :if={@user}
       id="codemyspec-support-widget"
+      data-cms-widget
+      data-cms-widget-state={@widget_state}
       phx-hook=".CmsScreenshot"
       class="fixed bottom-4 right-4 z-50"
     >
@@ -339,6 +378,7 @@ defmodule <%= web_module %>.SupportWidgetLive do
       <button
         type="button"
         phx-click="toggle"
+        data-cms-widget-toggle
         data-test="widget-toggle"
         class="btn btn-primary btn-circle shadow-lg"
         aria-label="Support"
