@@ -34,7 +34,10 @@ defmodule <%= web_module %>.SupportWidgetLive do
       socket
       |> assign(:user, user)
       |> assign(:identity, identity)
-      |> assign(:widget_state, widget_state(false))
+      # "pending", not "unavailable": on a dead render nothing has tried to
+      # connect yet, and saying "unavailable" there means the marker reads the
+      # same whether the backend is up or down — which is no signal at all.
+      |> assign(:widget_state, "pending")
       |> assign(:open, false)
       |> assign(:tab, :chat)
       |> assign(:messages, [])
@@ -95,8 +98,8 @@ defmodule <%= web_module %>.SupportWidgetLive do
     body = String.trim(body)
     attachments = socket.assigns.pending_attachments
 
-    if socket.assigns.user && (body != "" or attachments != []) do
-      Widget.send_message(socket.assigns.user.id, body, attachments)
+    if body != "" or attachments != [] do
+      Widget.send_message(socket.assigns.identity.id, body, attachments)
     end
 
     {:noreply, socket |> assign(:pending_attachments, []) |> assign(:chat_body, "")}
@@ -108,9 +111,7 @@ defmodule <%= web_module %>.SupportWidgetLive do
 
   # A file was picked in the chat composer — get a presigned URL to upload it to.
   def handle_event("request_chat_upload", %{"content_type" => ct, "filename" => filename}, socket) do
-    if socket.assigns.user do
-      Widget.request_chat_upload(socket.assigns.user.id, ct, filename)
-    end
+    Widget.request_chat_upload(socket.assigns.identity.id, ct, filename)
 
     {:noreply, assign(socket, :chat_pending_meta, %{"filename" => filename, "content_type" => ct})}
   end
@@ -140,9 +141,8 @@ defmodule <%= web_module %>.SupportWidgetLive do
   end
 
   def handle_event("load_older", _params, socket) do
-    with %{user: user} when not is_nil(user) <- socket.assigns,
-         before when is_binary(before) <- oldest_cursor(socket.assigns.messages) do
-      Widget.load_older(user.id, before)
+    with before when is_binary(before) <- oldest_cursor(socket.assigns.messages) do
+      Widget.load_older(socket.assigns.identity.id, before)
     end
 
     {:noreply, socket}
@@ -164,9 +164,7 @@ defmodule <%= web_module %>.SupportWidgetLive do
 
   # The browser captured a screenshot and wants a presigned URL to upload it to.
   def handle_event("request_screenshot_upload", %{"content_type" => content_type}, socket) do
-    if socket.assigns.user do
-      Widget.request_screenshot_upload(socket.assigns.user.id, content_type)
-    end
+    Widget.request_screenshot_upload(socket.assigns.identity.id, content_type)
 
     {:noreply, assign(socket, :pending_content_type, content_type)}
   end
@@ -194,14 +192,11 @@ defmodule <%= web_module %>.SupportWidgetLive do
     severity = params["severity"] || socket.assigns.fb_severity
 
     cond do
-      is_nil(socket.assigns.user) ->
-        {:noreply, socket}
-
       title == "" ->
         {:noreply, assign(socket, :fb_error, "Please add a short summary.")}
 
       true ->
-        Widget.submit_feedback(socket.assigns.user.id, %{
+        Widget.submit_feedback(socket.assigns.identity.id, %{
           "title" => title,
           "description" => description,
           "severity" => severity,
