@@ -89,16 +89,66 @@ defmodule CodeMySpecGenerators.Generator do
   @doc """
   Generates a unique migration timestamp.
 
-  If called multiple times within the same second, increments by 1 second
-  to avoid collisions.
+  If a migration already carries this second, moves to the next free one.
+
+  That is what this always claimed and did not do: it applied an offset the
+  callers never passed, so the whole `cms_gen.*` chain — which runs back to
+  back, well inside a second — wrote several migrations with the same version.
+  Nothing complained until the app tried to deploy, where it died in the
+  migration container with
+
+      ** (Ecto.MigrationError) migrations can't be executed, migration version
+      20260813141704 is duplicated
+
+  and the deploy reported "Migration failed (exit 1)". A generated project
+  could not migrate at all.
+
+  Reads the directory rather than counting calls, so it holds across separate
+  `mix cms_gen.*` invocations — which is how the chain actually runs.
   """
   def migration_timestamp(offset \\ 0) do
+    offset
+    |> stamp()
+    |> next_free()
+  end
+
+  defp next_free(stamp) do
+    case File.ls(Path.join(["priv", "repo", "migrations"])) do
+      {:ok, files} -> advance_past(stamp, MapSet.new(files, &String.slice(&1, 0, 14)))
+      _ -> stamp
+    end
+  end
+
+  defp advance_past(stamp, taken) do
+    case MapSet.member?(taken, stamp) do
+      true -> stamp |> bump() |> advance_past(taken)
+      false -> stamp
+    end
+  end
+
+  # One second later, via the same calendar arithmetic that built it.
+  defp bump(stamp) do
+    <<y::binary-4, m::binary-2, d::binary-2, hh::binary-2, mm::binary-2, ss::binary-2>> = stamp
+
+    {{String.to_integer(y), String.to_integer(m), String.to_integer(d)},
+     {String.to_integer(hh), String.to_integer(mm), String.to_integer(ss)}}
+    |> :calendar.datetime_to_gregorian_seconds()
+    |> Kernel.+(1)
+    |> :calendar.gregorian_seconds_to_datetime()
+    |> format()
+  end
+
+  defp stamp(offset) do
     {{y, m, d}, {hh, mm, ss}} =
       :calendar.universal_time()
       |> :calendar.datetime_to_gregorian_seconds()
       |> Kernel.+(offset)
       |> :calendar.gregorian_seconds_to_datetime()
 
+    format({{y, m, d}, {hh, mm, ss}})
+  end
+
+  defp format({{y, m, d}, {hh, mm, ss}}) do
     "#{y}#{pad(m)}#{pad(d)}#{pad(hh)}#{pad(mm)}#{pad(ss)}"
   end
 
