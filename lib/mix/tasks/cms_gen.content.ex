@@ -110,6 +110,13 @@ defmodule Mix.Tasks.CmsGen.Content do
     router_path = Path.join([web_lib_path, "router.ex"])
     inject_content_routes(router_path, binding)
 
+    # These used to be step 4 of the printed instructions, and the generated
+    # Content.S3Client calls ExAws regardless of whether anybody read it. The
+    # project still compiled — ExAws resolves to an undefined-module warning,
+    # not an error — so the failure waited until something touched S3 at
+    # runtime, far from the cause. Same bug the widget generator had.
+    deps_done = patch_deps()
+
     Generator.print_shell_instructions("""
     Content generator complete!
 
@@ -140,15 +147,22 @@ defmodule Mix.Tasks.CmsGen.Content do
        Pass a %Scope{} for authenticated viewers (sees protected content) or nil
        for anonymous visitors (public content only).
 
-    4. Content.S3Client / Content.ExAwsReqClient need these deps in mix.exs:
+    4. Content.S3Client / Content.ExAwsReqClient need :ex_aws and :ex_aws_s3:
 
-        {:ex_aws, "~> 2.5"},
-        {:ex_aws_s3, "~> 2.5"}
+    #{Enum.map_join(deps_done, "\n    ", &"* #{&1}")}
 
-       They are only used to read/write an S3 bucket directly. The pull flow
-       itself fetches over plain HTTP via Content.PullClient and does not need
-       them — delete both modules if this app never touches S3.
+       Run `mix deps.get` to fetch them. They are only used to read/write an S3
+       bucket directly — the pull flow fetches over plain HTTP via
+       Content.PullClient and does not need them, so delete both modules if
+       this app never touches S3.
     """)
+  end
+
+  defp patch_deps do
+    [
+      Generator.patch_dep(:ex_aws, "~> 2.5", "Content.S3Client calls ExAws"),
+      Generator.patch_dep(:ex_aws_s3, "~> 2.5", "Content.S3Client calls ExAws.S3")
+    ]
   end
 
   # Injects the /api/content scope into the router. Idempotent: keyed on the

@@ -93,18 +93,7 @@ defmodule Mix.Tasks.CmsGen.SupportWidget do
   # already-patched file alone so re-running the generator is safe.
 
   defp patch_deps do
-    patch_file(
-      "mix.exs",
-      "slipstream",
-      &String.replace(
-        &1,
-        ~r/(\n\s*)\{:phoenix, "~> [^}]+\},/,
-        "\\0\\1{:slipstream, \"~> 1.1\"},",
-        global: false
-      ),
-      "added {:slipstream, \"~> 1.1\"} to mix.exs — `use Slipstream` needs it",
-      "add {:slipstream, \"~> 1.1\"} to your deps, or the widget client will not compile"
-    )
+    Generator.patch_dep(:slipstream, "~> 1.1", "`use Slipstream` needs it")
   end
 
   defp patch_supervision_tree(binding) do
@@ -181,32 +170,8 @@ defmodule Mix.Tasks.CmsGen.SupportWidget do
   # unrecognised file is reported rather than guessed at: a shape this does not
   # understand is one somebody has already edited, and guessing is how a
   # generator eats someone's work.
-  defp patch_file(path, marker, patch, did, todo) do
-    case File.read(path) do
-      {:error, reason} ->
-        "COULD NOT READ #{path} (#{inspect(reason)}) — #{todo}"
-
-      {:ok, contents} ->
-        apply_patch(String.contains?(contents, marker), contents, path, patch, did, todo)
-    end
-  end
-
-  defp apply_patch(true, _contents, path, _patch, _did, _todo),
-    do: "#{path} already carries it — left alone"
-
-  defp apply_patch(false, contents, path, patch, did, todo) do
-    patched = patch.(contents)
-
-    case patched == contents do
-      true -> "COULD NOT PATCH #{path} — its shape is not the generated one. Please #{todo}"
-      false -> write_patch(File.write(path, patched), path, did, todo)
-    end
-  end
-
-  defp write_patch(:ok, _path, did, _todo), do: did
-
-  defp write_patch({:error, reason}, path, _did, todo),
-    do: "COULD NOT WRITE #{path} (#{inspect(reason)}) — #{todo}"
+  defp patch_file(path, marker, patch, did, todo),
+    do: Generator.patch_file(path, marker, patch, did, todo)
 
   defp instructions(binding, done) do
     """

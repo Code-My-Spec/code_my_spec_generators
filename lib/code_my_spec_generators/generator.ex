@@ -188,6 +188,72 @@ defmodule CodeMySpecGenerators.Generator do
   end
 
   @doc """
+  Applies one edit to a generated file, reporting what it did.
+
+  Returns a sentence for the generator's summary — silently editing a file the
+  operator wrote is worse than telling them. `marker` makes the edit
+  idempotent: a file already carrying it is left alone, so re-running a
+  generator is safe.
+
+  Lives here rather than in a task because two generators need it. Printing
+  "add this dep" instead of adding it produced a project that could not
+  compile, and the quiet version of the same bug — a project that compiles
+  and is missing a feature, with nothing anywhere saying so — is worse.
+  `agent_tasks` drives this chain unattended and never reads instructions.
+  """
+  def patch_file(path, marker, patch, did, todo) do
+    case File.read(path) do
+      {:error, reason} ->
+        "COULD NOT READ #{path} (#{inspect(reason)}) — #{todo}"
+
+      {:ok, contents} ->
+        apply_patch(String.contains?(contents, marker), contents, path, patch, did, todo)
+    end
+  end
+
+  defp apply_patch(true, _contents, path, _patch, _did, _todo),
+    do: "#{path} already carries it — left alone"
+
+  defp apply_patch(false, contents, path, patch, did, todo) do
+    patched = patch.(contents)
+
+    case patched == contents do
+      true -> "COULD NOT PATCH #{path} — its shape is not the generated one. Please #{todo}"
+      false -> write_patch(File.write(path, patched), path, did, todo)
+    end
+  end
+
+  defp write_patch(:ok, _path, did, _todo), do: did
+
+  defp write_patch({:error, reason}, path, _did, todo),
+    do: "COULD NOT WRITE #{path} (#{inspect(reason)}) — #{todo}"
+
+  @doc """
+  Adds a dependency to mix.exs, after the `:phoenix` entry.
+
+  Anchored on `:phoenix` because every generated project has exactly one and
+  it sits inside the deps list — the one landmark whose shape these generators
+  control.
+  """
+  def patch_dep(name, requirement, why) do
+    patch_file(
+      "mix.exs",
+      # The exact dep token, not the bare name: `:ex_aws` is a substring of
+      # `:ex_aws_s3`, so a bare name would read an already-added sibling as
+      # itself and skip the dep that is genuinely missing.
+      "{:#{name},",
+      &String.replace(
+        &1,
+        ~r/(\n\s*)\{:phoenix, "~> [^}]+\},/,
+        "\\0\\1{:#{name}, \"#{requirement}\"},",
+        global: false
+      ),
+      "added {:#{name}, \"#{requirement}\"} to mix.exs — #{why}",
+      "add {:#{name}, \"#{requirement}\"} to your deps, or #{why}"
+    )
+  end
+
+  @doc """
   Prints post-generation instructions.
   """
   def print_shell_instructions(instructions) do
