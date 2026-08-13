@@ -229,6 +229,33 @@ defmodule CodeMySpecGenerators.Generator do
     do: "COULD NOT WRITE #{path} (#{inspect(reason)}) — #{todo}"
 
   @doc """
+  Inserts `lines` directly after the first match of `anchor`, at the anchor's
+  own indentation.
+
+  The anchor regex must capture the indentation as group 1 — that is what
+  keeps injected routes lined up with the ones already there, whatever nesting
+  the file uses.
+  """
+  def patch_after(path, marker, anchor, lines, did, todo) do
+    patch_file(
+      path,
+      marker,
+      fn contents ->
+        Regex.replace(
+          anchor,
+          contents,
+          fn match, indent ->
+            match <> Enum.map_join(lines, "", &"\n#{indent}#{&1}")
+          end,
+          global: false
+        )
+      end,
+      did,
+      todo
+    )
+  end
+
+  @doc """
   Adds a dependency to mix.exs, after the `:phoenix` entry.
 
   Anchored on `:phoenix` because every generated project has exactly one and

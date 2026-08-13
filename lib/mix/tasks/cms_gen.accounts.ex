@@ -126,6 +126,7 @@ defmodule Mix.Tasks.CmsGen.Accounts do
     Generator.copy_templates("priv/templates/cms_gen.accounts", binding, files)
 
     scope_patch = patch_scope(scope_file)
+    router_patches = patch_router(web_lib_path)
 
     Generator.print_shell_instructions("""
     Accounts generator complete!
@@ -136,25 +137,58 @@ defmodule Mix.Tasks.CmsGen.Accounts do
 
         $ mix ecto.migrate
 
-    3. Add the following routes to your router:
+    3. Routes:
 
-       In your authenticated live_session:
-
-        live "/accounts", AccountLive.Index, :index
-        live "/accounts/picker", AccountLive.Picker, :index
-        live "/accounts/:id", AccountLive.Manage, :show
-        live "/accounts/:id/manage", AccountLive.Manage, :show
-        live "/accounts/:id/members", AccountLive.Members, :show
-        live "/accounts/:id/invitations", AccountLive.Invitations, :show
-
-       In a public (unauthenticated) scope:
-
-        live "/invitations/accept/:token", InvitationsLive.Accept, :new
+    #{Enum.map_join(router_patches, "\n    ", &"* #{&1}")}
 
     4. Consider adding an `on_mount` hook for `:require_active_account`
        to your router's authenticated live_session if you want to enforce
        account selection before accessing protected routes.
     """)
+  end
+
+  # These routes used to be step 3 of the printed instructions, which meant a
+  # generated project carried seven AccountLive views that nothing could reach.
+  # Nothing failed: the app compiled, deployed, and simply had no accounts UI,
+  # with nothing anywhere saying so. `agent_tasks` drives this chain unattended
+  # and never read the instructions.
+  #
+  # Anchored on the two routes `mix phx.gen.auth` always emits — the settings
+  # confirm-email route inside the authenticated live_session, and the log-in
+  # token route inside the public one. Those are the landmarks that tell the
+  # two sessions apart; matching on `live_session` itself would not, and the
+  # accept route has to land in the public one or an invited user cannot reach
+  # it without already having an account.
+  @authenticated_routes [
+    ~s(live "/accounts", AccountLive.Index, :index),
+    ~s(live "/accounts/picker", AccountLive.Picker, :index),
+    ~s(live "/accounts/:id", AccountLive.Manage, :show),
+    ~s(live "/accounts/:id/manage", AccountLive.Manage, :show),
+    ~s(live "/accounts/:id/members", AccountLive.Members, :show),
+    ~s(live "/accounts/:id/invitations", AccountLive.Invitations, :show)
+  ]
+
+  defp patch_router(web_lib_path) do
+    path = Path.join([web_lib_path, "router.ex"])
+
+    [
+      Generator.patch_after(
+        path,
+        "AccountLive.Index",
+        ~r/\n(\s*)live "\/users\/settings\/confirm-email\/:token"[^\n]*/,
+        @authenticated_routes,
+        "added the account routes to the authenticated live_session",
+        "add the account routes to your authenticated live_session"
+      ),
+      Generator.patch_after(
+        path,
+        "InvitationsLive.Accept",
+        ~r/\n(\s*)live "\/users\/log-in\/:token"[^\n]*/,
+        [~s(live "/invitations/accept/:token", InvitationsLive.Accept, :new)],
+        "added the invitation-accept route to the public live_session",
+        "add the invitation accept route to an unauthenticated scope"
+      )
+    ]
   end
 
   # The generated code reads `scope.active_account_id`, so the struct has to
