@@ -1,7 +1,7 @@
 defmodule <%= web_module %>.SupportWidgetLive do
   @moduledoc """
-  Always-on support widget for logged-in users — a sticky nested LiveView with
-  two clear intents:
+  Always-on support widget for every visitor, signed in or not — a sticky
+  nested LiveView with two clear intents:
 
     * **Chat** — a live conversation with a CodeMySpec operator.
     * **Report a problem** — file an issue (title/description/severity) that
@@ -15,8 +15,9 @@ defmodule <%= web_module %>.SupportWidgetLive do
 
   use <%= web_module %>, :live_view
 
+<%= if has_user_auth do %>
   on_mount {<%= web_module %>.UserAuth, :mount_current_scope}
-
+<% end %>
   alias <%= app_module %>.CodeMySpec.Widget
 
   @impl true

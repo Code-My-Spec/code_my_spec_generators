@@ -2,8 +2,8 @@ defmodule Mix.Tasks.CmsGen.SupportWidget do
   @shortdoc "Generates the CodeMySpec support widget (chat + report a problem)"
 
   @moduledoc """
-  Generates an always-on support widget for a host app's logged-in users. One
-  widget, two clear intents:
+  Generates an always-on support widget for a host app's users — signed in or
+  not. One widget, two clear intents:
 
     * **Chat** — a live conversation with a CodeMySpec operator.
     * **Report a problem** — file an issue (title / description / severity) that
@@ -34,10 +34,14 @@ defmodule Mix.Tasks.CmsGen.SupportWidget do
 
   ## Assumptions
 
-  `phx.gen.auth` conventions: `<Base>Web.UserAuth` provides an
-  `on_mount {_, :mount_current_scope}` assigning `current_scope.user`, and the
-  app runs `<Base>.PubSub`. The deploy key is read from
+  The app runs `<Base>.PubSub`. The deploy key is read from
   `Application.get_env(:<app>, :deploy_key)` — the same key content sync uses.
+
+  `phx.gen.auth` is optional. When `<Base>Web.UserAuth` exists, the widget
+  wires its `on_mount {_, :mount_current_scope}` so signed-in users keep one
+  thread across devices; when it doesn't, every visitor gets a
+  session-derived identity instead (see `SupportWidgetLive`'s `identity/2`).
+  Either way the widget renders and "Report a problem" works.
   """
 
   use Mix.Task
@@ -52,9 +56,12 @@ defmodule Mix.Tasks.CmsGen.SupportWidget do
       )
     end
 
-    binding = Generator.binding()
     lib_path = Generator.lib_path("")
     web_lib_path = Generator.web_lib_path("")
+
+    binding =
+      Generator.binding()
+      |> Keyword.put(:has_user_auth, File.exists?(Path.join(web_lib_path, "user_auth.ex")))
 
     files = [
       {:eex, "widget_client.ex", Path.join([lib_path, "code_my_spec", "widget_client.ex"])},
