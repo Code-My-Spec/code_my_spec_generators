@@ -8,12 +8,12 @@ defmodule Mix.Tasks.CmsGen.Content do
       $ mix cms_gen.content
 
   This is the single-tenant, production-facing content system. Access control is
-  based on authentication (Scope vs nil) rather than multi-tenancy — there is no
-  account_id/project_id filtering. It is distinct from the multi-tenant
-  ContentAdmin layer and is the target of the publishing/sync flow.
-
-  This generator requires `phx.gen.auth` to have been run first (it depends on the
-  generated `Users.Scope`).
+  based on authentication (any non-nil scope vs nil) rather than multi-tenancy —
+  there is no account_id/project_id filtering, and the scope value is never
+  inspected beyond nil-vs-not-nil. `phx.gen.auth` is not required: pass whatever
+  your app already uses to represent an authenticated viewer, or nil for
+  anonymous-only content. It is distinct from the multi-tenant ContentAdmin
+  layer and is the target of the publishing/sync flow.
 
   ## Generated files
 
@@ -58,12 +58,10 @@ defmodule Mix.Tasks.CmsGen.Content do
       )
     end
 
-    # Verify phx.gen.auth has been run (Content queries depend on Users.Scope)
+    # No phx.gen.auth dependency: the generated Content context takes an
+    # opaque scope (any non-nil value means "authenticated") and never
+    # references a Users.Scope struct — see the moduledoc above.
     app = Mix.Phoenix.otp_app()
-    scope_file = Path.join(["lib", to_string(app), "users", "scope.ex"])
-
-    Generator.ensure_dep_ran!("mix phx.gen.auth", [scope_file])
-
     binding = Generator.binding()
     timestamp = Generator.migration_timestamp()
 

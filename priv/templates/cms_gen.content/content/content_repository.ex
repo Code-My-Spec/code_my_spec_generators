@@ -1,40 +1,32 @@
 defmodule <%= app_module %>.Content.ContentRepository do
   @moduledoc """
   Provides data access functions for Content entities (published content). Handles content
-  retrieval with optional scope filtering - passing a Scope allows access to protected content
-  for authenticated users, while nil scope only returns public content. NO multi-tenant filtering
-  by account_id/project_id.
+  retrieval with optional scope filtering - passing any non-nil scope allows access to protected
+  content for authenticated users, while nil scope only returns public content. NO multi-tenant
+  filtering by account_id/project_id.
+
+  The scope value is never inspected beyond nil-vs-not-nil, so this has no dependency on
+  `phx.gen.auth` having been run — pass whatever your app already uses to represent an
+  authenticated viewer.
   """
 
   import Ecto.Query, warn: false
 
   alias <%= app_module %>.Repo
   alias <%= app_module %>.Content.Content
-  alias <%= app_module %>.Users.Scope
 
-  @type scope :: Scope.t()
+  @type scope :: term()
   @type content_type :: :blog | :page | :landing | :documentation
 
   @doc """
   Returns published content filtered by content_type.
 
-  With Scope: Returns published content (publish_at <= now, expires_at > now or null)
+  With a non-nil scope: Returns published content (publish_at <= now, expires_at > now or null)
   including both public AND protected content.
 
   With nil: Returns ONLY public published content (protected = false).
   """
   @spec list_published_content(scope() | nil, content_type()) :: [Content.t()]
-  def list_published_content(%Scope{} = _scope, content_type) do
-    now = DateTime.utc_now()
-
-    Content
-    |> by_content_type(content_type)
-    |> where([c], is_nil(c.publish_at) or c.publish_at <= ^now)
-    |> where([c], is_nil(c.expires_at) or c.expires_at > ^now)
-    |> Repo.all()
-    |> preload_tags()
-  end
-
   def list_published_content(nil, content_type) do
     now = DateTime.utc_now()
 
@@ -47,26 +39,25 @@ defmodule <%= app_module %>.Content.ContentRepository do
     |> preload_tags()
   end
 
+  def list_published_content(_scope, content_type) do
+    now = DateTime.utc_now()
+
+    Content
+    |> by_content_type(content_type)
+    |> where([c], is_nil(c.publish_at) or c.publish_at <= ^now)
+    |> where([c], is_nil(c.expires_at) or c.expires_at > ^now)
+    |> Repo.all()
+    |> preload_tags()
+  end
+
   @doc """
   Fetches content by slug and content_type.
 
-  With Scope: Returns both public and protected content if published.
+  With a non-nil scope: Returns both public and protected content if published.
 
   With nil: Returns ONLY public content (protected = false) if published.
   """
   @spec get_content_by_slug(scope() | nil, String.t(), content_type()) :: Content.t() | nil
-  def get_content_by_slug(%Scope{} = _scope, slug, content_type) do
-    now = DateTime.utc_now()
-
-    Content
-    |> by_slug(slug)
-    |> by_content_type(content_type)
-    |> where([c], is_nil(c.publish_at) or c.publish_at <= ^now)
-    |> where([c], is_nil(c.expires_at) or c.expires_at > ^now)
-    |> preload(:tags)
-    |> Repo.one()
-  end
-
   def get_content_by_slug(nil, slug, content_type) do
     now = DateTime.utc_now()
 
@@ -80,15 +71,31 @@ defmodule <%= app_module %>.Content.ContentRepository do
     |> Repo.one()
   end
 
+  def get_content_by_slug(_scope, slug, content_type) do
+    now = DateTime.utc_now()
+
+    Content
+    |> by_slug(slug)
+    |> by_content_type(content_type)
+    |> where([c], is_nil(c.publish_at) or c.publish_at <= ^now)
+    |> where([c], is_nil(c.expires_at) or c.expires_at > ^now)
+    |> preload(:tags)
+    |> Repo.one()
+  end
+
   @doc """
   Bang version of get_content_by_slug.
 
-  With Scope: Raises Ecto.NoResultsError if not found.
+  With a non-nil scope: Raises Ecto.NoResultsError if not found.
 
   With nil: Returns nil if not found (non-raising).
   """
   @spec get_content_by_slug!(scope() | nil, String.t(), content_type()) :: Content.t() | nil
-  def get_content_by_slug!(%Scope{} = _scope, slug, content_type) do
+  def get_content_by_slug!(nil, slug, content_type) do
+    get_content_by_slug(nil, slug, content_type)
+  end
+
+  def get_content_by_slug!(_scope, slug, content_type) do
     now = DateTime.utc_now()
 
     Content
@@ -97,10 +104,6 @@ defmodule <%= app_module %>.Content.ContentRepository do
     |> where([c], is_nil(c.publish_at) or c.publish_at <= ^now)
     |> where([c], is_nil(c.expires_at) or c.expires_at > ^now)
     |> Repo.one!()
-  end
-
-  def get_content_by_slug!(nil, slug, content_type) do
-    get_content_by_slug(nil, slug, content_type)
   end
 
   @doc """

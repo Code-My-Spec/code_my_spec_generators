@@ -34,14 +34,17 @@ defmodule Mix.Tasks.CmsGen.ContentTest do
       ])
     end
 
-    test "content repository is scope-aware and single-tenant" do
+    test "content repository is scope-aware, single-tenant, and has no phx.gen.auth dependency" do
       templates_dir =
         Application.app_dir(:code_my_spec_generators, "priv/templates/cms_gen.content")
 
+      content = File.read!(Path.join(templates_dir, "content/content_repository.ex"))
+      refute String.contains?(content, "Users.Scope")
+      refute String.contains?(content, "%Scope{}")
+
       assert_file(Path.join(templates_dir, "content/content_repository.ex"), [
-        "alias <%= app_module %>.Users.Scope",
-        "def list_published_content(%Scope{}",
         "def list_published_content(nil,",
+        "def list_published_content(_scope,",
         "c.protected == false",
         "def get_content_by_slug"
       ])

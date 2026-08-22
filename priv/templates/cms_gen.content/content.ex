@@ -8,9 +8,14 @@ defmodule <%= app_module %>.Content do
 
   ## Scope Integration
 
-  **Scope is for authentication, NOT multi-tenancy**:
-  - **With %Scope{}**: User is authenticated → can access both public and protected content
+  **The first argument is for authentication, NOT multi-tenancy**:
+  - **With a non-nil value**: User is authenticated → can access both public and protected content
   - **With nil**: Anonymous visitor → can only access public content (protected = false)
+
+  Pass whatever your app already uses to represent an authenticated viewer (a
+  `phx.gen.auth` `Scope`, a plain user struct, anything). This module never
+  inspects it beyond nil-vs-not, so there is no dependency on `phx.gen.auth`
+  having been run.
 
   NO account_id or project_id filtering. All queries are unscoped from a multi-tenant perspective.
   """
@@ -21,7 +26,6 @@ defmodule <%= app_module %>.Content do
 
   alias <%= app_module %>.Repo
   alias <%= app_module %>.Content.{Content, Tag, ContentTag, ContentRepository}
-  alias <%= app_module %>.Users.Scope
 
   @type content_type :: :blog | :page | :landing | :documentation
 
@@ -35,7 +39,7 @@ defmodule <%= app_module %>.Content do
   - expires_at is in the future or nil
 
   ## Parameters
-    - scope_or_nil: %Scope{} for authenticated users (access to protected content), nil for anonymous (public only)
+    - scope_or_nil: any non-nil value for authenticated users (access to protected content), nil for anonymous (public only)
     - content_type: :blog, :page, :landing, or :documentation
 
   ## Examples
@@ -46,7 +50,7 @@ defmodule <%= app_module %>.Content do
       # Authenticated user - public AND protected content
       Content.list_published_content(scope, :blog)
   """
-  @spec list_published_content(Scope.t() | nil, content_type()) :: [Content.t()]
+  @spec list_published_content(term() | nil, content_type()) :: [Content.t()]
   def list_published_content(scope_or_nil, content_type) do
     ContentRepository.list_published_content(scope_or_nil, content_type)
   end
@@ -57,7 +61,7 @@ defmodule <%= app_module %>.Content do
   Returns nil if not found or if content is protected and scope is nil.
 
   ## Parameters
-    - scope_or_nil: %Scope{} for authenticated users, nil for anonymous
+    - scope_or_nil: any non-nil value for authenticated users, nil for anonymous
     - slug: String slug identifier
     - content_type: :blog, :page, :landing, or :documentation
 
@@ -69,7 +73,7 @@ defmodule <%= app_module %>.Content do
       # Get any published content (authenticated)
       Content.get_content_by_slug(scope, "my-post", :blog)
   """
-  @spec get_content_by_slug(Scope.t() | nil, String.t(), content_type()) :: Content.t() | nil
+  @spec get_content_by_slug(term() | nil, String.t(), content_type()) :: Content.t() | nil
   def get_content_by_slug(scope_or_nil, slug, content_type) do
     ContentRepository.get_content_by_slug(scope_or_nil, slug, content_type)
   end
@@ -81,11 +85,11 @@ defmodule <%= app_module %>.Content do
   With nil: Returns nil if not found (non-raising for anonymous users).
 
   ## Parameters
-    - scope_or_nil: %Scope{} for authenticated users, nil for anonymous
+    - scope_or_nil: any non-nil value for authenticated users, nil for anonymous
     - slug: String slug identifier
     - content_type: :blog, :page, :landing, or :documentation
   """
-  @spec get_content_by_slug!(Scope.t() | nil, String.t(), content_type()) :: Content.t() | nil
+  @spec get_content_by_slug!(term() | nil, String.t(), content_type()) :: Content.t() | nil
   def get_content_by_slug!(scope_or_nil, slug, content_type) do
     ContentRepository.get_content_by_slug!(scope_or_nil, slug, content_type)
   end
