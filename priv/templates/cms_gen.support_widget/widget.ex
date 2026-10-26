@@ -17,17 +17,61 @@ defmodule <%= app_module %>.CodeMySpec.Widget do
   @doc "PubSub topic SupportWidgetLive subscribes to for a user's message updates."
   def topic(user_id), do: "codemyspec:widget:#{user_id}"
 
-  @doc "Starts the user's client if not already running. Idempotent."
+  @doc """
+  Starts the user's client if not already running. Idempotent.
+
+  A client already running with a *different* origin is replaced rather than
+  reused. `origin` is what tells CodeMySpec which site a message came from, and
+  it is sent once, when the socket connects — so a client started earlier
+  without one goes on reporting nothing forever, and `{:already_started, pid}`
+  quietly discarded the origin the caller had just supplied.
+
+  That is how a widget that was installed, connected and delivering messages
+  still could not be proven: the messages arrived with no origin, so nothing
+  could attribute them to the site that sent them.
+  """
   def ensure_started(user_id, user_email, origin \\ nil) do
     spec =
       {WidgetClient, [user_id: to_string(user_id), user_email: user_email, origin: origin]}
 
     case DynamicSupervisor.start_child(@supervisor, spec) do
-      {:ok, pid} -> {:ok, pid}
-      {:error, {:already_started, pid}} -> {:ok, pid}
-      :ignore -> {:error, :not_configured}
-      other -> other
+      {:ok, pid} ->
+        {:ok, pid}
+
+      {:error, {:already_started, pid}} ->
+        restart_if_origin_changed(pid, spec, origin)
+
+      :ignore ->
+        {:error, :not_configured}
+
+      other ->
+        other
     end
+  end
+
+  defp restart_if_origin_changed(pid, spec, origin) do
+    if origin in [nil, running_origin(pid)] do
+      {:ok, pid}
+    else
+      DynamicSupervisor.terminate_child(@supervisor, pid)
+
+      case DynamicSupervisor.start_child(@supervisor, spec) do
+        {:ok, new_pid} -> {:ok, new_pid}
+        {:error, {:already_started, existing}} -> {:ok, existing}
+        other -> other
+      end
+    end
+  end
+
+  # A client that cannot answer is one being replaced anyway, so an unreadable
+  # origin reads as "different" rather than raising.
+  defp running_origin(pid) do
+    case GenServer.call(pid, :origin, 2_000) do
+      origin when is_binary(origin) -> origin
+      _ -> nil
+    end
+  catch
+    :exit, _ -> nil
   end
 
   @doc "Current accumulated messages for the user (for a freshly-mounted widget)."

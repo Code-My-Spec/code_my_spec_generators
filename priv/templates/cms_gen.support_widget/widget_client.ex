@@ -99,6 +99,13 @@ defmodule <%= app_module %>.CodeMySpec.WidgetClient do
      socket}
   end
 
+  # The site this client told CodeMySpec it was connecting from. `origin` is
+  # sent once, at connect, so `Widget.ensure_started/3` has to ask before
+  # deciding whether a running client can be reused for a different site.
+  def handle_call(:origin, _from, socket) do
+    {:reply, socket.assigns[:origin], socket}
+  end
+
   @impl Slipstream
   def handle_cast({:send_message, body, attachments}, socket) do
     push(socket, socket.assigns.topic, "send_message", %{
