@@ -38,6 +38,8 @@ defmodule <%= app_module %>.CodeMySpec.WidgetClient do
           |> assign(:messages, [])
           |> assign(:connected, false)
           |> assign(:reconnect_attempts, 0)
+          |> assign(:queued, [])
+          |> assign(:awaiting, %{})
           |> connect!(uri: uri)
 
         {:ok, socket}
@@ -57,6 +59,14 @@ defmodule <%= app_module %>.CodeMySpec.WidgetClient do
   def handle_join(_topic, _reply, socket) do
     socket = socket |> assign(:reconnect_attempts, 0) |> assign(:connected, true)
     broadcast(socket, {:connected, true})
+
+    socket =
+      socket.assigns.queued
+      |> Enum.reverse()
+      |> Enum.reduce(assign(socket, :queued, []), fn {from, body}, acc ->
+        push_confirmed(acc, from, body)
+      end)
+
     {:ok, socket}
   end
 
@@ -70,8 +80,16 @@ defmodule <%= app_module %>.CodeMySpec.WidgetClient do
 
   def handle_message(_topic, _event, _payload, socket), do: {:ok, socket}
 
-  # Reply to a `load_older` push: prepend the previous page and re-broadcast.
+  # CodeMySpec's answer to a `send_confirmed/2` message: it was stored or it wasn't.
   @impl Slipstream
+  def handle_reply(ref, reply, %{assigns: %{awaiting: awaiting}} = socket)
+      when is_map_key(awaiting, ref) do
+    {from, awaiting} = Map.pop(awaiting, ref)
+    GenServer.reply(from, confirmation(reply))
+    {:ok, assign(socket, :awaiting, awaiting)}
+  end
+
+  # Reply to a `load_older` push: prepend the previous page and re-broadcast.
   def handle_reply(_ref, {:ok, %{"messages" => older}}, socket) when is_list(older) do
     messages = older ++ socket.assigns.messages
     socket = assign(socket, :messages, messages)
@@ -104,6 +122,16 @@ defmodule <%= app_module %>.CodeMySpec.WidgetClient do
   # deciding whether a running client can be reused for a different site.
   def handle_call(:origin, _from, socket) do
     {:reply, socket.assigns[:origin], socket}
+  end
+
+  # A message whose sender waits for CodeMySpec to store it. Queued until the
+  # join: a push before it is dropped with `{:error, :not_joined}`.
+  def handle_call({:send_confirmed, body}, from, socket) do
+    if joined?(socket, socket.assigns.topic) do
+      {:noreply, push_confirmed(socket, from, body)}
+    else
+      {:noreply, update(socket, :queued, &[{from, body} | &1])}
+    end
   end
 
   @impl Slipstream
@@ -154,7 +182,12 @@ defmodule <%= app_module %>.CodeMySpec.WidgetClient do
     # believes they were heard — worse than showing unavailable.
     socket = socket |> assign(:connected, false) |> assign(:reconnect_attempts, attempts + 1)
     broadcast(socket, {:connected, false})
-    {:ok, socket}
+
+    # Their replies died with the connection.
+    for {_ref, from} <- socket.assigns.awaiting,
+        do: GenServer.reply(from, {:error, :disconnected})
+
+    {:ok, assign(socket, :awaiting, %{})}
   end
 
   @impl Slipstream
@@ -169,6 +202,22 @@ defmodule <%= app_module %>.CodeMySpec.WidgetClient do
         {:noreply, socket}
     end
   end
+
+  defp push_confirmed(socket, from, body) do
+    case push(socket, socket.assigns.topic, "send_message", %{"body" => body, "attachments" => []}) do
+      {:ok, ref} ->
+        update(socket, :awaiting, &Map.put(&1, ref, from))
+
+      {:error, reason} ->
+        GenServer.reply(from, {:error, reason})
+        socket
+    end
+  end
+
+  defp confirmation(:ok), do: :ok
+  defp confirmation({:ok, _}), do: :ok
+  defp confirmation(:error), do: {:error, :rejected}
+  defp confirmation({:error, reason}), do: {:error, reason}
 
   defp broadcast(socket, message) do
     Phoenix.PubSub.broadcast(

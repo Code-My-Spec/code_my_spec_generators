@@ -11,6 +11,10 @@ defmodule <%= app_module %>.CodeMySpec.Widget do
   @registry <%= app_module %>.CodeMySpec.WidgetRegistry
   @supervisor <%= app_module %>.CodeMySpec.WidgetSupervisor
 
+  # The identity `verify/3` speaks as, kept apart from real visitors' threads.
+  @verify_user "cms-verify"
+  @verify_email "cms-verify@verify.invalid"
+
   @doc "Registry `:via` tuple for a user's client process."
   def via(user_id), do: {:via, Registry, {@registry, to_string(user_id)}}
 
@@ -81,6 +85,21 @@ defmodule <%= app_module %>.CodeMySpec.Widget do
     # No client running is not "fine, no messages" — it is the widget being
     # unavailable, and the widget has to be able to say so.
     :exit, _ -> %{messages: [], connected: false}
+  end
+
+  @doc """
+  Sends `body` through the widget as its own check user and waits until
+  CodeMySpec has stored it. Backs `POST /_cms/verify/widget`.
+
+  `origin` is where the caller reached this app; CodeMySpec only counts the
+  message as coming from the deployed site when it matches.
+  """
+  def verify(body, origin, timeout \\ 10_000) do
+    with {:ok, pid} <- ensure_started(@verify_user, @verify_email, origin) do
+      GenServer.call(pid, {:send_confirmed, body}, timeout)
+    end
+  catch
+    :exit, {reason, _call} -> {:error, reason}
   end
 
   def send_message(user_id, body, attachments \\ []),

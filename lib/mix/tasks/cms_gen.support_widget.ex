@@ -26,11 +26,15 @@ defmodule Mix.Tasks.CmsGen.SupportWidget do
     * `lib/<app>/code_my_spec/widget_client.ex` — per-user Slipstream client
     * `lib/<app>/code_my_spec/widget.ex` — registry/supervisor interface
     * `lib/<app>_web/live/support_widget_live.ex` — the sticky nested LiveView
+    * `lib/<app>_web/controllers/widget_verify_controller.ex` —
+      `POST /_cms/verify/widget`, which sends a message through the widget
+      when called with the deploy key, so CodeMySpec can prove the install
 
-  It also edits the four things the widget needs to work: the `slipstream`
+  It also edits the five things the widget needs to work: the `slipstream`
   dependency, the registry and supervisor in the supervision tree, the
-  `live_render` in the root layout, and the socket URL and deploy key in
-  runtime config. Each is skipped if already present and reported either way.
+  `live_render` in the root layout, the verify route in the router, and the
+  socket URL and deploy key in runtime config. Each is skipped if already
+  present and reported either way.
 
   ## Assumptions
 
@@ -47,6 +51,7 @@ defmodule Mix.Tasks.CmsGen.SupportWidget do
   use Mix.Task
 
   alias CodeMySpecGenerators.Generator
+  alias CodeMySpecGenerators.Injector
 
   @impl true
   def run(_args) do
@@ -67,7 +72,9 @@ defmodule Mix.Tasks.CmsGen.SupportWidget do
       {:eex, "widget_client.ex", Path.join([lib_path, "code_my_spec", "widget_client.ex"])},
       {:eex, "widget.ex", Path.join([lib_path, "code_my_spec", "widget.ex"])},
       {:eex, "support_widget_live.ex",
-       Path.join([web_lib_path, "live", "support_widget_live.ex"])}
+       Path.join([web_lib_path, "live", "support_widget_live.ex"])},
+      {:eex, "widget_verify_controller.ex",
+       Path.join([web_lib_path, "controllers", "widget_verify_controller.ex"])}
     ]
 
     Mix.Phoenix.prompt_for_conflicts(files)
@@ -77,6 +84,7 @@ defmodule Mix.Tasks.CmsGen.SupportWidget do
       patch_deps(),
       patch_supervision_tree(binding),
       patch_layout(binding),
+      patch_router(binding),
       patch_runtime_config(binding)
     ]
 
@@ -147,6 +155,26 @@ defmodule Mix.Tasks.CmsGen.SupportWidget do
       ),
       "rendered the widget in root.html.heex",
       "render SupportWidgetLive in root.html.heex before </body>, or the widget never appears"
+    )
+  end
+
+  # No pipeline: the endpoint already parses JSON, and the route must not
+  # depend on a pipeline the host app may have renamed or removed.
+  defp patch_router(binding) do
+    routes = """
+      # CodeMySpec proves the widget by asking it to send a message. Deploy-key
+      # protected in the controller; /health stays a shallow liveness probe.
+      scope "/_cms", #{binding[:web_module]} do
+        post "/verify/widget", WidgetVerifyController, :create
+      end
+    """
+
+    patch_file(
+      Path.join(["lib", "#{binding[:app]}_web", "router.ex"]),
+      "WidgetVerifyController",
+      &(Injector.inject_before_final_end(&1, routes) || &1),
+      "routed POST /_cms/verify/widget in router.ex",
+      "route POST /_cms/verify/widget to WidgetVerifyController, :create"
     )
   end
 
