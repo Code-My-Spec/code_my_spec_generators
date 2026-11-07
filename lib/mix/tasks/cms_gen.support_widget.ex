@@ -198,19 +198,19 @@ defmodule Mix.Tasks.CmsGen.SupportWidget do
     # The support widget's socket and private installation credential path. Read at
     # runtime so one image serves every environment.
     config :#{app},
-      codemyspec_widget_url:
-        System.get_env("CODEMYSPEC_WIDGET_URL") || "wss://codemyspec.com/widget"
+      codemyspec_server_url:
+        System.get_env("CODEMYSPEC_SERVER_URL") || "https://codemyspec.com"
 
-    config :#{app}, :codemyspec_widget_credentials_path,
-      System.get_env("CODEMYSPEC_WIDGET_CREDENTIALS_PATH")
+    config :#{app}, :codemyspec_credentials_path,
+      System.get_env("CODEMYSPEC_CREDENTIALS_PATH")
     """
 
     patch_file(
       Path.join(["config", "runtime.exs"]),
-      "codemyspec_widget_url",
+      "codemyspec_server_url",
       &(&1 <> config),
       "configured the widget socket in runtime.exs",
-      "configure :codemyspec_widget_url and :codemyspec_widget_credentials_path in runtime.exs"
+      "configure :codemyspec_server_url and :codemyspec_credentials_path in runtime.exs"
     )
   end
 
@@ -236,11 +236,11 @@ defmodule Mix.Tasks.CmsGen.SupportWidget do
 
     Authorize the host once as the project owner:
 
-      mix client_utils.widget.authorize --server https://codemyspec.com --project PROJECT_UUID --credentials /private/state/widget.json
+      mix client_utils.authorize --server https://codemyspec.com --project PROJECT_UUID --credentials /private/state/codemyspec.json
 
-    Open the printed URL and approve the code. Set CODEMYSPEC_WIDGET_CREDENTIALS_PATH
+    Open the printed URL and approve the code. Set CODEMYSPEC_CREDENTIALS_PATH
     to that private file at runtime; keep it outside the repository and public assets.
-    Visitors do not authorize devices. Manage installations at /oauth/widgets.
+    Visitors do not authorize devices. Manage installations at /oauth/installations.
     The optional inbound /_cms/verify/widget provisioning probe still uses DEPLOY_KEY.
 
     The widget renders unconditionally, for everyone — visitors who never
