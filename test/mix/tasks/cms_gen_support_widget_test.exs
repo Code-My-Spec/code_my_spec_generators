@@ -62,7 +62,7 @@ defmodule Mix.Tasks.CmsGen.SupportWidgetTest do
 
       assert_file(Path.join(tmp, "assets/css/app.css"), ["deps/client_utils/lib"])
       runtime = File.read!(Path.join(tmp, "config/runtime.exs"))
-      assert runtime =~ "CODEMYSPEC_WIDGET_CREDENTIALS_PATH"
+      assert runtime =~ "CODEMYSPEC_CREDENTIALS_PATH"
       refute runtime =~ "DEPLOY_KEY"
     end
 
