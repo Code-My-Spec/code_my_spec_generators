@@ -24,11 +24,7 @@ defmodule Mix.Tasks.CmsGen.SupportWidgetTest do
 
       assert_file(Path.join(tmp, "lib/site_web/controllers/widget_verify_controller.ex"), [
         "defmodule SiteWeb.WidgetVerifyController",
-        "alias Site.CodeMySpec.Widget",
-        ~s|["Bearer " <> provided] <- get_req_header(conn, "authorization")|,
-        "Application.get_env(:site, :deploy_key)",
-        "put_status(:unauthorized)",
-        "Widget.verify("
+        "defdelegate create(conn, params), to: ClientUtils.WidgetVerifyController"
       ])
 
       router = File.read!(Path.join(tmp, "lib/site_web/router.ex"))
@@ -38,19 +34,45 @@ defmodule Mix.Tasks.CmsGen.SupportWidgetTest do
       assert router =~ ~s|get "/health", HealthController, :show|
     end
 
-    test "the widget can send a message and wait for CodeMySpec to store it", %{tmp: tmp} do
+    test "installs the library instead of copying its implementation", %{tmp: tmp} do
       run_generator(tmp)
+      refute File.exists?(Path.join(tmp, "lib/site/code_my_spec/widget.ex"))
+      refute File.exists?(Path.join(tmp, "lib/site/code_my_spec/widget_client.ex"))
 
-      assert_file(Path.join(tmp, "lib/site/code_my_spec/widget.ex"), [
-        "def verify(body, origin, timeout \\\\ 10_000)",
-        ~s|@verify_user "cms-verify"|,
-        "{:send_confirmed, body}"
+      assert_file(Path.join(tmp, "lib/site_web/live/support_widget_live.ex"), [
+        "use ClientUtils.SupportWidgetLive"
       ])
 
-      assert_file(Path.join(tmp, "lib/site/code_my_spec/widget_client.ex"), [
-        "def handle_call({:send_confirmed, body}, from, socket)",
-        "when is_map_key(awaiting, ref)",
-        "GenServer.reply(from, {:error, :disconnected})"
+      assert_file(Path.join(tmp, "mix.exs"), [
+        ~s(github: "Code-My-Spec/client_utils"),
+        ~s(branch: "main")
+      ])
+
+      assert_file(Path.join(tmp, "lib/site/application.ex"), [
+        "{ClientUtils.Widget, otp_app: :site}"
+      ])
+
+      assert {:ok, _} =
+               Code.string_to_quoted(File.read!(Path.join(tmp, "lib/site/application.ex")))
+
+      assert_file(Path.join(tmp, "assets/js/app.js"), [
+        "hooks: {CmsSupportWidget, CmsChatScroll,",
+        "deps/client_utils/priv/static/widget.js"
+      ])
+
+      assert_file(Path.join(tmp, "assets/css/app.css"), ["deps/client_utils/lib"])
+    end
+
+    test "registers hooks into a named hook map without discarding existing hooks", %{tmp: tmp} do
+      File.write!(
+        Path.join(tmp, "assets/js/app.js"),
+        "const Hooks = {Existing}; const socket = new LiveSocket('/live', Socket, {hooks: Hooks})"
+      )
+
+      run_generator(tmp)
+
+      assert_file(Path.join(tmp, "assets/js/app.js"), [
+        "hooks: {...Hooks, CmsSupportWidget, CmsChatScroll}"
       ])
     end
 
@@ -58,8 +80,6 @@ defmodule Mix.Tasks.CmsGen.SupportWidgetTest do
       run_generator(tmp)
 
       for path <- [
-            "lib/site/code_my_spec/widget.ex",
-            "lib/site/code_my_spec/widget_client.ex",
             "lib/site_web/live/support_widget_live.ex",
             "lib/site_web/controllers/widget_verify_controller.ex",
             "lib/site_web/router.ex"
@@ -81,8 +101,6 @@ defmodule Mix.Tasks.CmsGen.SupportWidgetTest do
 
   defp generated_files do
     [
-      "lib/site/code_my_spec/widget.ex",
-      "lib/site/code_my_spec/widget_client.ex",
       "lib/site_web/live/support_widget_live.ex",
       "lib/site_web/controllers/widget_verify_controller.ex"
     ]
@@ -136,6 +154,9 @@ defmodule Mix.Tasks.CmsGen.SupportWidgetTest do
       """,
       "lib/site_web/components/layouts/root.html.heex" =>
         "<html>\n  <body>\n  </body>\n</html>\n",
+      "assets/js/app.js" =>
+        "const liveSocket = new LiveSocket(\"/live\", Socket, {hooks: {...colocatedHooks}})\n",
+      "assets/css/app.css" => "@import \"tailwindcss\";\n",
       "config/runtime.exs" => "import Config\n"
     }
 

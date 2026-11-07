@@ -26,7 +26,7 @@ Then run `mix deps.get`.
 | `mix cms_gen.content` | Published content context (single-tenant) for deploying/serving content |
 | `mix cms_gen.integrations` | OAuth integrations context and LiveViews |
 | `mix cms_gen.integration_provider` | A single OAuth provider module (github, google, facebook, quickbooks, codemyspec) |
-| `mix cms_gen.support_widget` | Embeddable support widget — live chat + "report a problem", over one deploy-key socket |
+| `mix cms_gen.support_widget` | Installs the shared `client_utils` support widget — host authentication adapter, assets, and supervision only |
 | `mix cms_gen.feedback_widget` | **Deprecated** — feedback-only widget; use `cms_gen.support_widget` |
 
 Run any task with `--help` style inspection by opening the module docs, or see
