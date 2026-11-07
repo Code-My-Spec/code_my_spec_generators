@@ -99,13 +99,17 @@ defmodule Mix.Tasks.CmsGen.SupportWidget do
                 String.replace(
                   source,
                   ~r/hooks:\s*\{/,
-                  "hooks: {CmsSupportWidget, CmsChatScroll,", global: false)
+                  "hooks: {CmsSupportWidget, CmsChatScroll,",
+                  global: false
+                )
 
               Regex.match?(~r/hooks:\s*[A-Za-z_$][\w$]*/, source) ->
                 String.replace(
                   source,
                   ~r/hooks:\s*([A-Za-z_$][\w$]*)/,
-                  "hooks: {...\\1, CmsSupportWidget, CmsChatScroll}", global: false)
+                  "hooks: {...\\1, CmsSupportWidget, CmsChatScroll}",
+                  global: false
+                )
 
               true ->
                 source
@@ -191,13 +195,14 @@ defmodule Mix.Tasks.CmsGen.SupportWidget do
 
     config = """
 
-    # The support widget's socket, and the key it authenticates with. Read at
+    # The support widget's socket and private installation credential path. Read at
     # runtime so one image serves every environment.
     config :#{app},
       codemyspec_widget_url:
         System.get_env("CODEMYSPEC_WIDGET_URL") || "wss://codemyspec.com/widget"
 
-    config :#{app}, :deploy_key, System.get_env("DEPLOY_KEY")
+    config :#{app}, :codemyspec_widget_credentials_path,
+      System.get_env("CODEMYSPEC_WIDGET_CREDENTIALS_PATH")
     """
 
     patch_file(
@@ -205,7 +210,7 @@ defmodule Mix.Tasks.CmsGen.SupportWidget do
       "codemyspec_widget_url",
       &(&1 <> config),
       "configured the widget socket in runtime.exs",
-      "configure :codemyspec_widget_url and :deploy_key in runtime.exs"
+      "configure :codemyspec_widget_url and :codemyspec_widget_credentials_path in runtime.exs"
     )
   end
 
@@ -228,6 +233,15 @@ defmodule Mix.Tasks.CmsGen.SupportWidget do
 
     Run `mix deps.get`, rebuild assets, and restart the server. Screenshot capture
     ships in client_utils; consumers do not install another npm package.
+
+    Authorize the host once as the project owner:
+
+      mix client_utils.widget.authorize --server https://codemyspec.com --project PROJECT_UUID --credentials /private/state/widget.json
+
+    Open the printed URL and approve the code. Set CODEMYSPEC_WIDGET_CREDENTIALS_PATH
+    to that private file at runtime; keep it outside the repository and public assets.
+    Visitors do not authorize devices. Manage installations at /oauth/widgets.
+    The optional inbound /_cms/verify/widget provisioning probe still uses DEPLOY_KEY.
 
     The widget renders unconditionally, for everyone — visitors who never
     signed up are who the most useful feedback comes from, and it gives them a
