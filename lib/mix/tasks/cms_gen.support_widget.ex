@@ -2,50 +2,9 @@ defmodule Mix.Tasks.CmsGen.SupportWidget do
   @shortdoc "Generates the CodeMySpec support widget (chat + report a problem)"
 
   @moduledoc """
-  Generates an always-on support widget for a host app's users — signed in or
-  not. One widget, two clear intents:
-
-    * **Chat** — a live conversation with a CodeMySpec operator.
-    * **Report a problem** — file an issue (title / description / severity) that
-      lands in the project's CodeMySpec issue queue.
-
-      $ mix cms_gen.support_widget
-
-  Both intents ride ONE connection: per logged-in user, the host app's **server**
-  opens a Slipstream connection to CodeMySpec authenticated by the project
-  **deploy key** (the key never reaches the browser). Chat relays
-  `send_message`/`new_message`; "Report a problem" pushes a `submit_feedback`
-  event on the same `conversation:<user_id>` topic, which CodeMySpec files as an
-  issue. No OAuth, no second transport.
-
-  This supersedes `cms_gen.feedback_widget` (feedback-only, OAuth/REST) — the
-  support widget does everything that did, plus chat, over the deploy-key socket.
-
-  ## Generated files
-
-    * `lib/<app>/code_my_spec/widget_client.ex` — per-user Slipstream client
-    * `lib/<app>/code_my_spec/widget.ex` — registry/supervisor interface
-    * `lib/<app>_web/live/support_widget_live.ex` — the sticky nested LiveView
-    * `lib/<app>_web/controllers/widget_verify_controller.ex` —
-      `POST /_cms/verify/widget`, which sends a message through the widget
-      when called with the deploy key, so CodeMySpec can prove the install
-
-  It also edits the five things the widget needs to work: the `slipstream`
-  dependency, the registry and supervisor in the supervision tree, the
-  `live_render` in the root layout, the verify route in the router, and the
-  socket URL and deploy key in runtime config. Each is skipped if already
-  present and reported either way.
-
-  ## Assumptions
-
-  The app runs `<Base>.PubSub`. The deploy key is read from
-  `Application.get_env(:<app>, :deploy_key)` — the same key content sync uses.
-
-  `phx.gen.auth` is optional. When `<Base>Web.UserAuth` exists, the widget
-  wires its `on_mount {_, :mount_current_scope}` so signed-in users keep one
-  thread across devices; when it doesn't, every visitor gets a
-  session-derived identity instead (see `SupportWidgetLive`'s `identity/2`).
-  Either way the widget renders and "Report a problem" works.
+  Installs the shared `ClientUtils` support widget. Only the host authentication
+  hook and verification route are generated; UI and transport live in the library.
+  Run `mix cms_gen.support_widget`, fetch dependencies, then rebuild assets.
   """
 
   use Mix.Task
@@ -61,7 +20,6 @@ defmodule Mix.Tasks.CmsGen.SupportWidget do
       )
     end
 
-    lib_path = Generator.lib_path("")
     web_lib_path = Generator.web_lib_path("")
 
     binding =
@@ -69,8 +27,6 @@ defmodule Mix.Tasks.CmsGen.SupportWidget do
       |> Keyword.put(:has_user_auth, File.exists?(Path.join(web_lib_path, "user_auth.ex")))
 
     files = [
-      {:eex, "widget_client.ex", Path.join([lib_path, "code_my_spec", "widget_client.ex"])},
-      {:eex, "widget.ex", Path.join([lib_path, "code_my_spec", "widget.ex"])},
       {:eex, "support_widget_live.ex",
        Path.join([web_lib_path, "live", "support_widget_live.ex"])},
       {:eex, "widget_verify_controller.ex",
@@ -85,47 +41,99 @@ defmodule Mix.Tasks.CmsGen.SupportWidget do
       patch_supervision_tree(binding),
       patch_layout(binding),
       patch_router(binding),
-      patch_runtime_config(binding)
+      patch_runtime_config(binding),
+      patch_assets()
     ]
 
     Generator.print_shell_instructions(instructions(binding, done))
   end
 
-  # The edits below used to be steps 1 to 4 of the printed instructions, which
-  # meant a generated project carried a widget that could not compile and, once
-  # that was fixed by hand, was never rendered or supervised. `use Slipstream`
-  # in code whose project does not depend on slipstream is the loud half:
-  #
-  #   ** (CompileError) cannot compile module <App>.CodeMySpec.WidgetClient
-  #       expanding macro: Kernel.use/1
-  #
-  # The quiet half is worse — a project that compiles, deploys, and has no
-  # widget on the page, with nothing anywhere saying so. `agent_tasks` drives
-  # this chain unattended and never read the instructions.
-  #
-  # Each patch reports what it did, because silently editing a file the
-  # operator wrote is worse than telling them, and each leaves an
-  # already-patched file alone so re-running the generator is safe.
-
+  # Keep installation wiring idempotent; the dependency owns the widget behavior.
   defp patch_deps do
-    Generator.patch_dep(:slipstream, "~> 1.1", "`use Slipstream` needs it")
+    patch_file(
+      "mix.exs",
+      ~s(github: "Code-My-Spec/client_utils"),
+      fn source ->
+        if String.contains?(source, "{:client_utils,") do
+          String.replace(
+            source,
+            ~r/\{:client_utils,[^}]+\}/,
+            ~s({:client_utils, github: "Code-My-Spec/client_utils", branch: "main"})
+          )
+        else
+          String.replace(source, ~r/(defp deps do\s*\[)/, ~s(\\1
+      {:client_utils, github: "Code-My-Spec/client_utils", branch: "main"},))
+        end
+      end,
+      "configured client_utils from Git",
+      "add client_utils as a Git dependency"
+    )
   end
 
   defp patch_supervision_tree(binding) do
-    base = binding[:app_module]
-
     patch_file(
       application_file(binding),
-      "WidgetRegistry",
-      &String.replace(
-        &1,
-        ~r/(\n(\s*)\{Phoenix\.PubSub,)/,
-        "\n\\2{Registry, keys: :unique, name: #{base}.CodeMySpec.WidgetRegistry},\n\\2{DynamicSupervisor, strategy: :one_for_one, name: #{base}.CodeMySpec.WidgetSupervisor},\\1",
-        global: false
-      ),
-      "added the widget registry and supervisor to application.ex",
-      "add the widget Registry and DynamicSupervisor to your supervision tree before the Endpoint"
+      "{ClientUtils.Widget,",
+      fn source ->
+        String.replace(
+          source,
+          ~r/(\n(\s*)\{Phoenix\.PubSub,)/,
+          "\n\\2{ClientUtils.Widget, otp_app: :#{binding[:app]}},\\1",
+          global: false
+        )
+      end,
+      "added shared widget supervision",
+      "add {ClientUtils.Widget, otp_app: :#{binding[:app]}} before the Endpoint"
     )
+  end
+
+  defp patch_assets do
+    js =
+      patch_file(
+        "assets/js/app.js",
+        "CmsSupportWidget",
+        fn source ->
+          patched =
+            cond do
+              Regex.match?(~r/hooks:\s*\{/, source) ->
+                String.replace(
+                  source,
+                  ~r/hooks:\s*\{/,
+                  "hooks: {CmsSupportWidget, CmsChatScroll,", global: false)
+
+              Regex.match?(~r/hooks:\s*[A-Za-z_$][\w$]*/, source) ->
+                String.replace(
+                  source,
+                  ~r/hooks:\s*([A-Za-z_$][\w$]*)/,
+                  "hooks: {...\\1, CmsSupportWidget, CmsChatScroll}", global: false)
+
+              true ->
+                source
+            end
+
+          if patched == source do
+            source
+          else
+            "import CmsSupportWidget, {CmsChatScroll} from \"../../deps/client_utils/priv/static/widget.js\"\n" <>
+              patched
+          end
+        end,
+        "registered shared widget hooks",
+        "register CmsSupportWidget from client_utils in LiveSocket hooks"
+      )
+
+    css =
+      patch_file(
+        "assets/css/app.css",
+        "deps/client_utils/lib",
+        fn source ->
+          source <> "\n@source \"../../deps/client_utils/lib\";\n"
+        end,
+        "included shared widget styles",
+        "include client_utils/lib in Tailwind sources"
+      )
+
+    js <> "; " <> css
   end
 
   # `mix phx.new` puts the Application module under `lib/<app>/`; `mix cms.new`
@@ -218,14 +226,8 @@ defmodule Mix.Tasks.CmsGen.SupportWidget do
 
     ## Left to you
 
-    1. Run `mix deps.get`, then restart the server.
-
-    2. (Optional) Enable "Report a problem" screenshots — the capture button
-       dynamically imports html-to-image:
-
-        cd assets && npm install html-to-image --prefix #{Path.join("assets", ".")}
-
-       Without it, reports still submit; only screenshot capture is a no-op.
+    Run `mix deps.get`, rebuild assets, and restart the server. Screenshot capture
+    ships in client_utils; consumers do not install another npm package.
 
     The widget renders unconditionally, for everyone — visitors who never
     signed up are who the most useful feedback comes from, and it gives them a
