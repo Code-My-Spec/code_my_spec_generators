@@ -52,17 +52,21 @@ defmodule Mix.Tasks.CmsGen.SupportWidget do
   defp patch_deps do
     patch_file(
       "mix.exs",
-      ~s(github: "Code-My-Spec/client_utils"),
+      ~s(ref: "0648f3ed1092e1346345d1adbb1d1e37eaf729ed"),
       fn source ->
         if String.contains?(source, "{:client_utils,") do
           String.replace(
             source,
             ~r/\{:client_utils,[^}]+\}/,
-            ~s({:client_utils, github: "Code-My-Spec/client_utils", branch: "main"})
+            ~s({:client_utils, github: "Code-My-Spec/client_utils", ref: "0648f3ed1092e1346345d1adbb1d1e37eaf729ed"})
           )
         else
-          String.replace(source, ~r/(defp deps do\s*\[)/, ~s(\\1
-      {:client_utils, github: "Code-My-Spec/client_utils", branch: "main"},))
+          String.replace(
+            source,
+            ~r/(defp deps do\s*\[)/,
+            ~s(\\1
+      {:client_utils, github: "Code-My-Spec/client_utils", ref: "0648f3ed1092e1346345d1adbb1d1e37eaf729ed"},)
+          )
         end
       end,
       "configured client_utils from Git",
@@ -162,7 +166,10 @@ defmodule Mix.Tasks.CmsGen.SupportWidget do
       &String.replace(
         &1,
         "</body>",
-        ~s|    {live_render(@conn, #{web_module}.SupportWidgetLive, id: "codemyspec-support", sticky: true)}\n  </body>|,
+        ~s|    <%= if ClientUtils.Widget.configured?(:#{binding[:app]}) do %>
+      {live_render(Plug.Conn.put_private(@conn, :phoenix_live_view, nil), #{web_module}.SupportWidgetLive, id: "codemyspec-support", sticky: true)}
+    <% end %>
+  </body>|,
         global: false
       ),
       "rendered the widget in root.html.heex",
@@ -199,7 +206,7 @@ defmodule Mix.Tasks.CmsGen.SupportWidget do
     # runtime so one image serves every environment.
     config :#{app},
       codemyspec_server_url:
-        System.get_env("CODEMYSPEC_SERVER_URL") || "https://codemyspec.com"
+        System.get_env("CODEMYSPEC_SERVER_URL")
 
     config :#{app}, :codemyspec_credentials_path,
       System.get_env("CODEMYSPEC_CREDENTIALS_PATH")

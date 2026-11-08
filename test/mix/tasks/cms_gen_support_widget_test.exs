@@ -45,7 +45,7 @@ defmodule Mix.Tasks.CmsGen.SupportWidgetTest do
 
       assert_file(Path.join(tmp, "mix.exs"), [
         ~s(github: "Code-My-Spec/client_utils"),
-        ~s(branch: "main")
+        ~s(ref: "0648f3ed1092e1346345d1adbb1d1e37eaf729ed")
       ])
 
       assert_file(Path.join(tmp, "lib/site/application.ex"), [
@@ -61,6 +61,10 @@ defmodule Mix.Tasks.CmsGen.SupportWidgetTest do
       ])
 
       assert_file(Path.join(tmp, "assets/css/app.css"), ["deps/client_utils/lib"])
+      layout = File.read!(Path.join(tmp, "lib/site_web/components/layouts/root.html.heex"))
+      assert layout =~ "ClientUtils.Widget.configured?(:site)"
+      assert layout =~ "Plug.Conn.put_private(@conn, :phoenix_live_view, nil)"
+      refute layout =~ "live_render(@conn,"
       runtime = File.read!(Path.join(tmp, "config/runtime.exs"))
       assert runtime =~ "CODEMYSPEC_CREDENTIALS_PATH"
       refute runtime =~ "DEPLOY_KEY"
