@@ -245,13 +245,14 @@ defmodule Mix.Tasks.CmsGen.SupportWidget do
 
       mix client_utils.authorize --server https://codemyspec.com --project PROJECT_UUID --credentials /private/state/codemyspec.json
 
-    Open the printed URL and approve the code. Set CODEMYSPEC_CREDENTIALS_PATH
-    to that private file at runtime; keep it outside the repository and public assets.
+    Open the printed URL and approve the code. Set CODEMYSPEC_SERVER_URL to the
+    HTTPS server origin and CODEMYSPEC_CREDENTIALS_PATH to that private file at
+    runtime; keep it outside the repository and public assets.
     Visitors do not authorize devices. Manage installations at /oauth/installations.
     The optional inbound /_cms/verify/widget provisioning probe still uses DEPLOY_KEY.
 
-    The widget renders unconditionally, for everyone — visitors who never
-    signed up are who the most useful feedback comes from, and it gives them a
+    Once both runtime settings are configured, the widget renders for everyone,
+    including visitors who have not signed up. It gives anonymous visitors a
     session-derived identity of their own. #{binding[:web_module]}.SupportWidgetLive
     is what draws it.
     """
